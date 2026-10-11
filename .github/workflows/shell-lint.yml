@@ -7,24 +7,27 @@ on:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup shellcheck
-        uses: ludeeus/action-shellcheck@2.0.0
+        uses: actions/checkout@v7.0.1
 
       - name: Setup shfmt
-        uses: mfinelli/setup-shfmt@v3
-
-      - name: Show versions
-        run: |
-          shellcheck --version
-          shfmt --version
+        uses: mfinelli/setup-shfmt@v4.0.1
+        with:
+          shfmt-version: '3.8.0'
 
       - name: Run shellcheck
-        run: shellcheck -x install.sh
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          version: v0.10.0
+          # The entry point sources and checks all library modules together.
+          ignore_paths: lib
+        env:
+          SHELLCHECK_OPTS: -x -a
 
       - name: Run shfmt check
-        run: shfmt -d -i 2 -ci -bn install.sh
+        run: shfmt -d -i 2 -ci -bn install.sh lib/*.sh
+
+      - name: Run installer regression tests
+        run: python3 -B -m unittest discover -s tests -v

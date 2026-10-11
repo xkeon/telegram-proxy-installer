@@ -3,25 +3,22 @@ set -euo pipefail
 
 # ============================================================
 # Telegram MTProto proxy one-click (interactive, i18n)
-# - Ubuntu 22.04
+# - Ubuntu 26.04 LTS
 # - EE (FakeTLS) via mtg
 # - DD (padding) via telegrammessenger/proxy
 # - User chooses ports, domains, language
 # ============================================================
 
-if [[ "${EUID}" -ne 0 ]]; then
-  echo "Please run as root / 请使用 root 运行 / root 권한으로 실행 / root で実行: sudo bash $0"
-  exit 1
-fi
-
 # Pinned image references for reproducible deployment.
 # You can override them with environment variables, for example:
 #   MTG_IMAGE='nineseconds/mtg@sha256:<digest>' DD_IMAGE='telegrammessenger/proxy@sha256:<digest>' sudo -E bash install.sh
-MTG_IMAGE="${MTG_IMAGE:-nineseconds/mtg@sha256:f0e90be754c59e729bc4e219eeb210a602f7ad4e39167833166a176cd6fa0461}"
+MTG_IMAGE="${MTG_IMAGE:-nineseconds/mtg@sha256:c082586a19886e4822f92aa8c1949a771df3519053d64b1b5505a9a280a3929d}"
 DD_IMAGE="${DD_IMAGE:-telegrammessenger/proxy@sha256:73210d43c8f8e4c888ba4e30d6daf7742528e9134252a1cd538caabf5e24a597}"
 DEPLOY_EE=0
 DEPLOY_DD=0
 CONFIG_DIR="/etc/telegram-proxy"
+SYSTEMD_UNIT_DIR="/etc/systemd/system"
+MTG_CONFIG_DIR="/opt/mtg"
 EE_ENV_FILE="${CONFIG_DIR}/ee.env"
 DD_ENV_FILE="${CONFIG_DIR}/dd.env"
 EE_SERVICE_NAME="telegram-proxy-ee.service"
@@ -30,28 +27,30 @@ EE_CONTAINER_NAME="mtg-ee"
 DD_CONTAINER_NAME="mtproto-dd"
 BACKUP_DIR="/var/backups/telegram-proxy"
 LOCK_FILE="/var/lock/telegram-proxy-install.lock"
+LAST_BACKUP_PATH=""
+TARGET_UBUNTU_VERSION="26.04"
+OS_RELEASE_FILE="/etc/os-release"
 
 # ---------- i18n ----------
 UI_LANG="en"
 
 select_language() {
-  echo "Select language / 选择语言 / 언어 선택 / 言語を選択:"
-  echo "1) English"
-  echo "2) 中文"
-  echo "3) 한국어"
-  echo "4) 日本語"
-  read -rp "> " choice
-  case "${choice:-1}" in
+  local language_choice=""
+  ui_select language_choice ui_language language 1 \
+    1:ui_english 2:ui_chinese 3:ui_korean 4:ui_japanese 0:menu_exit || return 1
+  case "$language_choice" in
     1) UI_LANG="en" ;;
     2) UI_LANG="zh" ;;
     3) UI_LANG="ko" ;;
     4) UI_LANG="ja" ;;
-    *) UI_LANG="en" ;;
+    0) return 1 ;;
   esac
+  save_preferences
 }
 
 t() {
   local key="$1"
+  if extra_translation "$key"; then return 0; fi
   case "$UI_LANG" in
     en)
       case "$key" in
@@ -110,16 +109,34 @@ t() {
         note_no_cdn) echo "Important: DNS should be 'DNS only' (no CDN proxy). MTProto is not standard HTTPS." ;;
         err_image_ref_invalid) echo "Image reference must be digest format: name@sha256:64hex. Please set MTG_IMAGE/DD_IMAGE." ;;
         menu_title) echo "Main Menu" ;;
-        menu_install) echo "install" ;;
-        menu_healthcheck) echo "healthcheck" ;;
-        menu_self_heal) echo "self-heal" ;;
-        menu_upgrade) echo "upgrade images (EE/DD)" ;;
-        menu_self_update) echo "self-update" ;;
-        menu_rotate_secret) echo "rotate-secret" ;;
-        menu_region_diag) echo "regional blocking diagnosis (heuristic)" ;;
-        menu_uninstall) echo "uninstall" ;;
-        menu_help) echo "help" ;;
-        menu_exit) echo "exit" ;;
+        ui_language) echo "Language / 语言 / 언어 / 言語" ;;
+        ui_english) echo "English" ;;
+        ui_chinese) echo "中文" ;;
+        ui_korean) echo "한국어" ;;
+        ui_japanese) echo "日本語" ;;
+        ui_group_services) echo "SERVICES & DIAGNOSTICS" ;;
+        ui_group_changes) echo "UPDATES & RECOVERY" ;;
+        ui_group_more) echo "MORE" ;;
+        ui_running) echo "Running" ;;
+        ui_stopped) echo "Not running" ;;
+        ui_unmanaged) echo "Not managed" ;;
+        ui_unknown) echo "Status unavailable" ;;
+        ui_back) echo "Back" ;;
+        ui_prompt) echo "Choose a number" ;;
+        ui_keys) echo "Up/Down | Enter | number + Enter" ;;
+        ui_shortcuts) echo "r refresh | q/Esc back/exit" ;;
+        ui_service_note) echo "Service state; use healthcheck for full diagnosis" ;;
+        usage_preview) echo "preview: show the terminal UI without root or changes." ;;
+        menu_install) echo "Install proxy" ;;
+        menu_healthcheck) echo "Healthcheck" ;;
+        menu_self_heal) echo "Repair services" ;;
+        menu_upgrade) echo "Upgrade proxy images" ;;
+        menu_self_update) echo "Update installer" ;;
+        menu_rotate_secret) echo "Rotate secret" ;;
+        menu_region_diag) echo "Network / region diagnosis" ;;
+        menu_uninstall) echo "Uninstall proxy" ;;
+        menu_help) echo "Help" ;;
+        menu_exit) echo "Exit" ;;
         menu_press_enter) echo "Press Enter to return to menu..." ;;
         ask_oper_mode) echo "Select mode:" ;;
         ask_rotate_mode) echo "Select rotate mode:" ;;
@@ -147,8 +164,8 @@ t() {
         err_self_update_not_git) echo "Self-update requires a git clone directory containing .git." ;;
         note_self_update_done) echo "Self-update completed." ;;
         note_self_update_rerun) echo "Run the installer again to apply new logic:" ;;
-        menu_migrate) echo "migrate legacy" ;;
-        menu_rollback) echo "rollback" ;;
+        menu_migrate) echo "Migrate legacy proxy" ;;
+        menu_rollback) echo "Restore backup" ;;
         step_migrate) echo "Step: Migrating legacy running containers into script-managed systemd services." ;;
         step_backup) echo "Step: Creating backup before change." ;;
         step_rollback) echo "Step: Rolling back from backup." ;;
@@ -180,6 +197,8 @@ t() {
         err_not_installed_dd) echo "DD is not installed." ;;
         err_invalid_mtg_image) echo "Invalid MTG image digest:" ;;
         err_invalid_dd_image) echo "Invalid DD image digest:" ;;
+        err_upgrade_failed) echo "Upgrade failed; restoring the previous configuration." ;;
+        err_upgrade_rollback_failed) echo "Automatic recovery failed. Restore this backup manually:" ;;
         err_invalid_ee_secret) echo "Invalid EE secret format (expected ee... hex)." ;;
         err_invalid_dd_secret) echo "Invalid DD secret format." ;;
         err_migrate_port_missing) echo "Cannot detect host port binding from legacy container." ;;
@@ -309,13 +328,31 @@ t() {
         note_no_cdn) echo "重要：DNS 必须是 DNS only/灰云（不要 CDN 代理）。MTProto 不是标准 HTTPS。" ;;
         err_image_ref_invalid) echo "镜像引用必须是 digest 格式：name@sha256:64位十六进制。请设置 MTG_IMAGE/DD_IMAGE。" ;;
         menu_title) echo "主菜单" ;;
+        ui_language) echo "Language / 语言 / 언어 / 言語" ;;
+        ui_english) echo "English" ;;
+        ui_chinese) echo "中文" ;;
+        ui_korean) echo "한국어" ;;
+        ui_japanese) echo "日本語" ;;
+        ui_group_services) echo "服务与诊断" ;;
+        ui_group_changes) echo "更新与恢复" ;;
+        ui_group_more) echo "其他操作" ;;
+        ui_running) echo "运行中" ;;
+        ui_stopped) echo "未运行" ;;
+        ui_unmanaged) echo "未托管" ;;
+        ui_unknown) echo "状态不可用" ;;
+        ui_back) echo "返回" ;;
+        ui_prompt) echo "输入编号" ;;
+        ui_keys) echo "↑/↓ 选择 · 回车确认 · 编号+回车" ;;
+        ui_shortcuts) echo "r 刷新 · q / Esc 返回或退出" ;;
+        ui_service_note) echo "此处显示服务状态；完整诊断请用健康检查" ;;
+        usage_preview) echo "preview：无需 root，只预览终端界面。" ;;
         menu_install) echo "安装" ;;
         menu_healthcheck) echo "健康检查" ;;
         menu_self_heal) echo "自愈" ;;
         menu_upgrade) echo "升级镜像（EE/DD）" ;;
         menu_self_update) echo "脚本自更新" ;;
         menu_rotate_secret) echo "轮换密钥" ;;
-        menu_region_diag) echo "地区封锁诊断（推测）" ;;
+        menu_region_diag) echo "网络与地区诊断" ;;
         menu_uninstall) echo "卸载" ;;
         menu_help) echo "帮助" ;;
         menu_exit) echo "退出" ;;
@@ -379,6 +416,8 @@ t() {
         err_not_installed_dd) echo "DD 尚未安装。" ;;
         err_invalid_mtg_image) echo "MTG 镜像 digest 无效：" ;;
         err_invalid_dd_image) echo "DD 镜像 digest 无效：" ;;
+        err_upgrade_failed) echo "升级失败，正在恢复之前的配置。" ;;
+        err_upgrade_rollback_failed) echo "自动恢复失败，请手动恢复此备份：" ;;
         err_invalid_ee_secret) echo "EE secret 格式无效（应为 ee... 十六进制）。" ;;
         err_invalid_dd_secret) echo "DD secret 格式无效。" ;;
         err_migrate_port_missing) echo "无法从旧容器识别主机端口绑定。" ;;
@@ -508,13 +547,31 @@ t() {
         note_no_cdn) echo "중요: DNS only(프록시/CDN 금지)." ;;
         err_image_ref_invalid) echo "이미지 참조는 digest 형식(name@sha256:64hex)이어야 합니다. MTG_IMAGE/DD_IMAGE를 설정하세요." ;;
         menu_title) echo "메인 메뉴" ;;
+        ui_language) echo "Language / 语言 / 언어 / 言語" ;;
+        ui_english) echo "English" ;;
+        ui_chinese) echo "中文" ;;
+        ui_korean) echo "한국어" ;;
+        ui_japanese) echo "日本語" ;;
+        ui_group_services) echo "서비스 및 진단" ;;
+        ui_group_changes) echo "업데이트 및 복구" ;;
+        ui_group_more) echo "기타" ;;
+        ui_running) echo "실행 중" ;;
+        ui_stopped) echo "중지됨" ;;
+        ui_unmanaged) echo "관리되지 않음" ;;
+        ui_unknown) echo "상태 확인 불가" ;;
+        ui_back) echo "뒤로" ;;
+        ui_prompt) echo "번호 선택" ;;
+        ui_keys) echo "↑/↓ 선택 · Enter 확인 · 번호 + Enter" ;;
+        ui_shortcuts) echo "r 새로 고침 · q / Esc 뒤로 또는 종료" ;;
+        ui_service_note) echo "서비스 상태입니다. 전체 진단은 상태 점검을 사용하세요" ;;
+        usage_preview) echo "preview: root 권한이나 변경 없이 터미널 UI를 미리 봅니다." ;;
         menu_install) echo "설치" ;;
         menu_healthcheck) echo "상태 점검" ;;
         menu_self_heal) echo "자동 복구" ;;
         menu_upgrade) echo "이미지 업그레이드(EE/DD)" ;;
         menu_self_update) echo "스크립트 자체 업데이트" ;;
         menu_rotate_secret) echo "시크릿 교체" ;;
-        menu_region_diag) echo "지역 차단 진단(추정)" ;;
+        menu_region_diag) echo "네트워크 / 지역 진단" ;;
         menu_uninstall) echo "제거" ;;
         menu_help) echo "도움말" ;;
         menu_exit) echo "종료" ;;
@@ -578,6 +635,8 @@ t() {
         err_not_installed_dd) echo "DD가 설치되어 있지 않습니다." ;;
         err_invalid_mtg_image) echo "잘못된 MTG 이미지 digest:" ;;
         err_invalid_dd_image) echo "잘못된 DD 이미지 digest:" ;;
+        err_upgrade_failed) echo "업그레이드 실패. 이전 설정을 복원합니다." ;;
+        err_upgrade_rollback_failed) echo "자동 복구 실패. 이 백업을 수동으로 복원하세요:" ;;
         err_invalid_ee_secret) echo "EE 시크릿 형식이 잘못되었습니다(ee... hex)." ;;
         err_invalid_dd_secret) echo "DD 시크릿 형식이 잘못되었습니다." ;;
         err_migrate_port_missing) echo "레거시 컨테이너에서 호스트 포트 바인딩을 감지할 수 없습니다." ;;
@@ -707,13 +766,31 @@ t() {
         note_no_cdn) echo "重要：DNSはDNS only（CDNプロキシ禁止）。" ;;
         err_image_ref_invalid) echo "イメージ参照はdigest形式(name@sha256:64hex)である必要があります。MTG_IMAGE/DD_IMAGEを設定してください。" ;;
         menu_title) echo "メインメニュー" ;;
+        ui_language) echo "Language / 语言 / 언어 / 言語" ;;
+        ui_english) echo "English" ;;
+        ui_chinese) echo "中文" ;;
+        ui_korean) echo "한국어" ;;
+        ui_japanese) echo "日本語" ;;
+        ui_group_services) echo "サービスと診断" ;;
+        ui_group_changes) echo "更新と復元" ;;
+        ui_group_more) echo "その他" ;;
+        ui_running) echo "稼働中" ;;
+        ui_stopped) echo "停止中" ;;
+        ui_unmanaged) echo "管理対象外" ;;
+        ui_unknown) echo "状態を取得できません" ;;
+        ui_back) echo "戻る" ;;
+        ui_prompt) echo "番号を選択" ;;
+        ui_keys) echo "↑/↓ 選択 · Enter 確定 · 番号 + Enter" ;;
+        ui_shortcuts) echo "r 更新 · q / Esc 戻る、または終了" ;;
+        ui_service_note) echo "サービスの状態です。詳細はヘルスチェックを使用してください" ;;
+        usage_preview) echo "preview: root 権限や変更なしで端末 UI を表示します。" ;;
         menu_install) echo "インストール" ;;
         menu_healthcheck) echo "ヘルスチェック" ;;
         menu_self_heal) echo "自動復旧" ;;
         menu_upgrade) echo "イメージ更新（EE/DD）" ;;
         menu_self_update) echo "スクリプト自己更新" ;;
         menu_rotate_secret) echo "シークレット更新" ;;
-        menu_region_diag) echo "地域ブロック診断（推定）" ;;
+        menu_region_diag) echo "ネットワーク・地域診断" ;;
         menu_uninstall) echo "アンインストール" ;;
         menu_help) echo "ヘルプ" ;;
         menu_exit) echo "終了" ;;
@@ -777,6 +854,8 @@ t() {
         err_not_installed_dd) echo "DD は未インストールです。" ;;
         err_invalid_mtg_image) echo "MTG イメージdigestが不正です:" ;;
         err_invalid_dd_image) echo "DD イメージdigestが不正です:" ;;
+        err_upgrade_failed) echo "更新に失敗しました。以前の設定を復元します。" ;;
+        err_upgrade_rollback_failed) echo "自動復旧に失敗しました。このバックアップを手動で復元してください:" ;;
         err_invalid_ee_secret) echo "EEシークレット形式が不正です（ee... hex）。" ;;
         err_invalid_dd_secret) echo "DDシークレット形式が不正です。" ;;
         err_migrate_port_missing) echo "旧コンテナからホスト側ポートバインドを検出できません。" ;;
@@ -853,8 +932,18 @@ t() {
 }
 
 # ---------- Utilities ----------
+normalize_port() {
+  local p="$1"
+  [[ "$p" =~ ^[0-9]+$ ]] || return 1
+  # Strip leading zeros before arithmetic, and reject numbers that could overflow.
+  p="${p#"${p%%[!0]*}"}"
+  [[ "${#p}" -ge 1 && "${#p}" -le 5 ]] || return 1
+  ((p >= 1 && p <= 65535)) || return 1
+  printf '%s' "$p"
+}
+
 is_port_number() {
-  [[ "$1" =~ ^[0-9]+$ ]] && (("$1" >= 1 && "$1" <= 65535))
+  normalize_port "$1" >/dev/null
 }
 
 is_valid_domain() {
@@ -863,7 +952,8 @@ is_valid_domain() {
 }
 
 port_in_use() {
-  local p="$1"
+  local p=""
+  p="$(normalize_port "$1")" || return 1
   if command -v ss >/dev/null 2>&1; then
     ss -lntp 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${p}$"
   elif command -v netstat >/dev/null 2>&1; then
@@ -937,27 +1027,7 @@ show_port_holders() {
 }
 
 cleanup_old_proxy_containers() {
-  local ids named_ids image_ids
-  local -a id_arr=()
-  if ! command -v docker >/dev/null 2>&1; then
-    return 1
-  fi
-
-  named_ids="$(
-    {
-      docker ps -aq --filter name='^/mtg-ee$' 2>/dev/null || true
-      docker ps -aq --filter name='^/mtproto-dd$' 2>/dev/null || true
-    } | awk 'NF' | sort -u
-  )"
-  image_ids="$(docker ps -a --format '{{.ID}} {{.Image}}' 2>/dev/null \
-    | awk '$2 ~ /^nineseconds\/mtg(@sha256:|:)/ || $2 ~ /^telegrammessenger\/proxy(@sha256:|:)/ {print $1}' || true)"
-  ids="$(printf '%s\n%s\n' "$named_ids" "$image_ids" | awk 'NF' | sort -u)"
-
-  if [[ -n "$ids" ]]; then
-    mapfile -t id_arr < <(printf '%s\n' "$ids" | awk 'NF')
-    docker rm -f "${id_arr[@]}" >/dev/null 2>&1 || true
-  fi
-  return 0
+  cleanup_port_targets "$@"
 }
 
 ask_domain() {
@@ -966,7 +1036,7 @@ ask_domain() {
   local value=""
   while true; do
     echo -n "$(t "$prompt_key")"
-    read -r value
+    read -r value || return 1
     value="${value//[[:space:]]/}"
     value="${value,,}"
     if [[ -z "$value" ]]; then
@@ -1022,10 +1092,10 @@ ask_front_domain_with_options() {
 }
 
 check_and_prepare_port() {
-  local p="$1"
+  local p=""
   local do_cleanup=""
 
-  if ! is_port_number "$p"; then
+  if ! p="$(normalize_port "$1")"; then
     t err_port_num
     return 1
   fi
@@ -1037,7 +1107,7 @@ check_and_prepare_port() {
     echo -n "$(t ask_cleanup_proxy_443)"
     read -r do_cleanup
     if [[ "$do_cleanup" =~ ^[Yy]$ ]]; then
-      if cleanup_old_proxy_containers; then
+      if cleanup_old_proxy_containers "$p"; then
         t note_cleanup_done
       else
         t warn_cleanup_unavailable
@@ -1067,6 +1137,7 @@ ask_port() {
     read -r p
     p="${p// /}"
     if check_and_prepare_port "$p"; then
+      p="$(normalize_port "$p")"
       printf -v "$var_name" "%s" "$p"
       return 0
     fi
@@ -1105,6 +1176,7 @@ ask_port_with_options() {
     esac
 
     if check_and_prepare_port "$p"; then
+      p="$(normalize_port "$p")"
       printf -v "$var_name" "%s" "$p"
       return 0
     fi
@@ -1146,7 +1218,9 @@ ask_deploy_mode() {
 confirm_continue() {
   local ans=""
   echo -n "$(t ask_continue_anyway)"
-  read -r ans
+  if [[ "$ASSUME_YES" -eq 1 ]]; then return 0; fi
+  if [[ "$NON_INTERACTIVE" -eq 1 ]]; then return 1; fi
+  read -r ans || return 1
   [[ "$ans" =~ ^[Yy]$ ]]
 }
 
@@ -1194,7 +1268,7 @@ check_domain_dns() {
       return 0
     fi
 
-    if [[ -n "$server_ipv4" ]] && ! grep -qx "$server_ipv4" <<<"$records"; then
+    if [[ -n "$server_ipv4" ]] && ! dns_records_match "$server_ipv4" "$records"; then
       printf '%s (%s)\n' "$(t warn_dns_mismatch)" "${domain}"
       echo "$(t note_a_records): $(tr '\n' ' ' <<<"$records" | xargs)"
       echo "$(t note_server_ip): ${server_ipv4}"
@@ -1210,7 +1284,7 @@ check_domain_dns() {
       return 0
     fi
 
-    if [[ -n "$server_ipv6" ]] && ! grep -Fqx "$server_ipv6" <<<"$records"; then
+    if [[ -n "$server_ipv6" ]] && ! dns_records_match "$server_ipv6" "$records"; then
       printf '%s (%s)\n' "$(t warn_dns_aaaa_mismatch)" "${domain}"
       echo "$(t note_aaaa_records): $(tr '\n' ' ' <<<"$records" | xargs)"
       echo "$(t note_server_ipv6): ${server_ipv6}"
@@ -1251,6 +1325,7 @@ usage() {
   cat <<EOF
 $(t usage_title)
   install.sh [install]
+  install.sh preview [--lang en|zh|ko|ja]
   install.sh migrate [--mode ee|dd|all] [--ee-domain DOMAIN] [--dd-domain DOMAIN] [--front-domain DOMAIN]
   install.sh rollback [--mode ee|dd|all] [--backup-id ID]
   install.sh self-update
@@ -1263,6 +1338,7 @@ $(t usage_title)
 
 $(t usage_notes)
   - $(t usage_no_args)
+  - $(t usage_preview)
   - $(t usage_migrate)
   - $(t usage_rollback)
   - $(t usage_self_update)
@@ -1295,36 +1371,29 @@ set_mode_flags() {
 }
 
 is_valid_ipv4() {
-  local ip="$1"
-  local o1 o2 o3 o4
-  [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
-  IFS='.' read -r o1 o2 o3 o4 <<<"$ip"
-  for octet in "$o1" "$o2" "$o3" "$o4"; do
-    ((octet >= 0 && octet <= 255)) || return 1
-  done
+  local octet=""
+  local -a octets=()
+  [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+  IFS=. read -r -a octets <<<"$1"
+  for octet in "${octets[@]}"; do ((10#$octet <= 255)) || return 1; done
 }
 
-is_valid_ipv6() {
-  local ip="$1"
-  [[ "$ip" == "::" ]] && return 0
-  [[ "$ip" == *:* ]] || return 1
-  return 0
-}
+is_valid_ipv6() { normalize_ipv6 "$1" >/dev/null; }
 
 is_local_bind_ip() {
-  local ip="$1"
-  if [[ "$ip" == "0.0.0.0" ]]; then
-    return 0
-  fi
-  ip -4 -o addr show 2>/dev/null | awk '{split($4,a,"/"); print a[1]}' | grep -qx "$ip"
+  local target="" address=""
+  target="$(canonical_ip "$1")" || return 1
+  [[ "$target" == 0.0.0.0 ]] && return 0
+  while read -r address; do [[ "$(canonical_ip "$address")" == "$target" ]] && return 0; done < <(ip -4 -o addr show | awk '{split($4,a,"/"); print a[1]}')
+  return 1
 }
 
 is_local_bind_ipv6() {
-  local ip="$1"
-  if [[ "$ip" == "::" ]]; then
-    return 0
-  fi
-  ip -6 -o addr show 2>/dev/null | awk '{split($4,a,"/"); print a[1]}' | grep -Fqx "$ip"
+  local target="" address=""
+  target="$(canonical_ip "$1")" || return 1
+  [[ "$target" == :: ]] && return 0
+  while read -r address; do [[ "$(canonical_ip "$address")" == "$target" ]] && return 0; done < <(ip -6 -o addr show | awk '{split($4,a,"/"); print a[1]}')
+  return 1
 }
 
 ask_bind_ip_with_options() {
@@ -1431,12 +1500,18 @@ ask_bind_ipv6_with_options() {
 }
 
 ports_conflict_for_bindings() {
-  local p1="$1"
+  local p1=""
   local ip1_v4="$2"
   local ip1_v6="$3"
-  local p2="$4"
+  local p2=""
   local ip2_v4="$5"
   local ip2_v6="$6"
+  if [[ -n "$ip1_v4" ]]; then ip1_v4="$(canonical_ip "$ip1_v4")" || return 1; fi
+  if [[ -n "$ip2_v4" ]]; then ip2_v4="$(canonical_ip "$ip2_v4")" || return 1; fi
+  if [[ -n "$ip1_v6" ]]; then ip1_v6="$(canonical_ip "$ip1_v6")" || return 1; fi
+  if [[ -n "$ip2_v6" ]]; then ip2_v6="$(canonical_ip "$ip2_v6")" || return 1; fi
+  p1="$(normalize_port "$1")" || return 1
+  p2="$(normalize_port "$4")" || return 1
   [[ "$p1" == "$p2" ]] || return 1
   if [[ -n "$ip1_v4" && -n "$ip2_v4" ]] && [[ "$ip1_v4" == "0.0.0.0" || "$ip2_v4" == "0.0.0.0" || "$ip1_v4" == "$ip2_v4" ]]; then
     return 0
@@ -1470,23 +1545,24 @@ preflight_checks() {
 
   if ! command -v systemctl >/dev/null 2>&1; then
     t critical_need_systemctl
-    exit 1
+    return 1
   fi
   if [[ "$(ps -p 1 -o comm= 2>/dev/null || true)" != "systemd" ]]; then
-    warnings+=("PID 1 is not systemd; service management may fail.")
+    t systemd_required
+    return 1
   fi
   if ! command -v apt-get >/dev/null 2>&1; then
     t critical_need_apt
-    exit 1
+    return 1
   fi
 
-  if [[ -r /etc/os-release ]]; then
-    # shellcheck disable=SC1091
-    . /etc/os-release
+  if [[ -r "$OS_RELEASE_FILE" ]]; then
+    # shellcheck disable=SC1090
+    . "$OS_RELEASE_FILE"
     os_id="${ID:-}"
     os_version="${VERSION_ID:-}"
-    if [[ "$os_id" != "ubuntu" || "$os_version" != "22.04" ]]; then
-      warnings+=("Target is tuned for Ubuntu 22.04; detected ${os_id:-unknown} ${os_version:-unknown}.")
+    if [[ "$os_id" != "ubuntu" || "$os_version" != "$TARGET_UBUNTU_VERSION" ]]; then
+      warnings+=("Target is tuned for Ubuntu ${TARGET_UBUNTU_VERSION} LTS; detected ${os_id:-unknown} ${os_version:-unknown}.")
     fi
   fi
 
@@ -1517,13 +1593,13 @@ preflight_checks() {
     printf ' - %s\n' "${warnings[@]}"
     if ! confirm_continue; then
       t aborted_by_user
-      exit 1
+      return 1
     fi
   fi
 }
 
 ensure_config_dir() {
-  mkdir -p "$CONFIG_DIR"
+  mkdir -p "$CONFIG_DIR" || return 1
   chmod 700 "$CONFIG_DIR"
 }
 
@@ -1537,6 +1613,8 @@ EE_BIND_IP=${EE_BIND_IP}
 EE_BIND_IPV6=${EE_BIND_IPV6}
 MTG_IMAGE=${MTG_IMAGE}
 EE_SECRET=${EE_SECRET}
+PUBLIC_IPV4=${PUBLIC_IPV4:-}
+PUBLIC_IPV6=${PUBLIC_IPV6:-}
 EOF
 }
 
@@ -1550,13 +1628,15 @@ DD_BIND_IPV6=${DD_BIND_IPV6}
 DD_BASE_SECRET=${DD_BASE_SECRET}
 DD_SECRET=${DD_SECRET}
 DD_IMAGE=${DD_IMAGE}
+PUBLIC_IPV4=${PUBLIC_IPV4:-}
+PUBLIC_IPV6=${PUBLIC_IPV6:-}
 EOF
 }
 
 write_ee_systemd_unit() {
   local publish_args=""
-  publish_args="$(docker_publish_args "${EE_BIND_IP:-0.0.0.0}" "${EE_BIND_IPV6:-}" "${EE_PORT}" "3128")"
-  cat >/etc/systemd/system/"$EE_SERVICE_NAME" <<EOF
+  publish_args="$(docker_publish_args "${EE_BIND_IP-0.0.0.0}" "${EE_BIND_IPV6:-}" "${EE_PORT}" "3128")"
+  cat >"${SYSTEMD_UNIT_DIR}/${EE_SERVICE_NAME}" <<EOF
 [Unit]
 Description=Telegram Proxy EE (mtg)
 After=network-online.target docker.service
@@ -1567,21 +1647,22 @@ Requires=docker.service
 Type=simple
 Restart=always
 RestartSec=5
-EnvironmentFile=/etc/telegram-proxy/ee.env
+EnvironmentFile="${EE_ENV_FILE}"
 ExecStartPre=-/usr/bin/docker rm -f mtg-ee
-ExecStart=/usr/bin/docker run --name mtg-ee --cap-drop=ALL --security-opt=no-new-privileges --pids-limit=256 -v /opt/mtg/config.toml:/config.toml:ro ${publish_args} ${MTG_IMAGE}
+ExecStart=/usr/bin/docker run --name mtg-ee --cap-drop=ALL --security-opt=no-new-privileges --pids-limit=256 --log-opt max-size=10m --log-opt max-file=3 -v "${MTG_CONFIG_DIR}/config.toml:/config.toml:ro" ${publish_args} ${MTG_IMAGE} run /config.toml
 ExecStop=/usr/bin/docker stop -t 10 mtg-ee
 ExecStopPost=-/usr/bin/docker rm -f mtg-ee
 
 [Install]
 WantedBy=multi-user.target
 EOF
+  chmod 600 "${SYSTEMD_UNIT_DIR}/${EE_SERVICE_NAME}"
 }
 
 write_dd_systemd_unit() {
   local publish_args=""
-  publish_args="$(docker_publish_args "${DD_BIND_IP:-0.0.0.0}" "${DD_BIND_IPV6:-}" "${DD_PORT}" "443")"
-  cat >/etc/systemd/system/"$DD_SERVICE_NAME" <<EOF
+  publish_args="$(docker_publish_args "${DD_BIND_IP-0.0.0.0}" "${DD_BIND_IPV6:-}" "${DD_PORT}" "443")"
+  cat >"${SYSTEMD_UNIT_DIR}/${DD_SERVICE_NAME}" <<EOF
 [Unit]
 Description=Telegram Proxy DD (MTProxy padding)
 After=network-online.target docker.service
@@ -1592,15 +1673,16 @@ Requires=docker.service
 Type=simple
 Restart=always
 RestartSec=5
-EnvironmentFile=/etc/telegram-proxy/dd.env
+EnvironmentFile="${DD_ENV_FILE}"
 ExecStartPre=-/usr/bin/docker rm -f mtproto-dd
-ExecStart=/usr/bin/docker run --name mtproto-dd --cap-drop=ALL --cap-add=NET_BIND_SERVICE --cap-add=SETGID --cap-add=SETUID --security-opt=no-new-privileges --pids-limit=256 ${publish_args} -e SECRET=${DD_BASE_SECRET} ${DD_IMAGE}
+ExecStart=/usr/bin/docker run --name mtproto-dd --cap-drop=ALL --cap-add=NET_BIND_SERVICE --cap-add=SETGID --cap-add=SETUID --security-opt=no-new-privileges --pids-limit=256 --log-opt max-size=10m --log-opt max-file=3 ${publish_args} -e SECRET=${DD_BASE_SECRET} ${DD_IMAGE}
 ExecStop=/usr/bin/docker stop -t 10 mtproto-dd
 ExecStopPost=-/usr/bin/docker rm -f mtproto-dd
 
 [Install]
 WantedBy=multi-user.target
 EOF
+  chmod 600 "${SYSTEMD_UNIT_DIR}/${DD_SERVICE_NAME}"
 }
 
 systemd_reload() {
@@ -1608,10 +1690,16 @@ systemd_reload() {
 }
 
 load_env_file() {
-  local f="$1"
-  [[ -f "$f" ]] || return 1
-  # shellcheck disable=SC1090
-  source "$f"
+  local file="$1" line="" key="" value=""
+  [[ -r "$file" ]] || return 1
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    key="${line%%=*}" value="${line#*=}"
+    case "$key" in
+      EE_DOMAIN | FRONT_DOMAIN | EE_PORT | EE_BIND_IP | EE_BIND_IPV6 | MTG_IMAGE | EE_SECRET | DD_DOMAIN | DD_PORT | DD_BIND_IP | DD_BIND_IPV6 | DD_IMAGE | DD_SECRET | DD_BASE_SECRET | PUBLIC_IPV4 | PUBLIC_IPV6)
+        printf -v "$key" '%s' "$value"
+        ;;
+    esac
+  done <"$file"
 }
 
 upsert_env_key() {
@@ -1628,27 +1716,24 @@ upsert_env_key() {
 acquire_run_lock() {
   if ! command -v flock >/dev/null 2>&1; then
     t err_lock_unavailable
-    exit 1
+    return 1
   fi
   mkdir -p "$(dirname "$LOCK_FILE")"
   exec 9>"$LOCK_FILE"
   if ! flock -n 9; then
     t err_lock_busy
-    exit 1
+    return 1
   fi
 }
 
 ensure_backup_dir() {
-  mkdir -p "$BACKUP_DIR"
+  mkdir -p "$BACKUP_DIR" || return 1
   chmod 700 "$BACKUP_DIR"
 }
 
 latest_backup_path() {
   local latest=""
-  latest="$(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
-    | sort -nr \
-    | head -n1 \
-    | sed -E 's/^[0-9.]+ //')"
+  latest="$(backup_paths | awk 'NR==1 {print}')"
   [[ -n "$latest" ]] || return 1
   printf '%s' "$latest"
 }
@@ -1675,28 +1760,57 @@ create_backup() {
   local stamp=""
   local backup_path=""
   stamp="$(date +%Y%m%d-%H%M%S)"
-  ensure_backup_dir
-  backup_path="${BACKUP_DIR}/${stamp}-${action}"
-  mkdir -p "$backup_path"
-  chmod 700 "$backup_path"
+  LAST_BACKUP_PATH=""
+  ensure_backup_dir || return 1
+  backup_path="$(mktemp -d "${BACKUP_DIR}/${stamp}-${action}-XXXXXX")" || return 1
+  chmod 700 "$backup_path" || return 1
 
   if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    [[ -f "$EE_ENV_FILE" ]] && cp -a "$EE_ENV_FILE" "${backup_path}/ee.env"
-    [[ -f "/etc/systemd/system/${EE_SERVICE_NAME}" ]] && cp -a "/etc/systemd/system/${EE_SERVICE_NAME}" "${backup_path}/${EE_SERVICE_NAME}"
-    [[ -f "/opt/mtg/config.toml" ]] && cp -a "/opt/mtg/config.toml" "${backup_path}/config.toml"
+    if [[ -f "$EE_ENV_FILE" ]]; then
+      cp -a "$EE_ENV_FILE" "${backup_path}/ee.env" || return 1
+    fi
+    if [[ -f "${SYSTEMD_UNIT_DIR}/${EE_SERVICE_NAME}" ]]; then
+      cp -a "${SYSTEMD_UNIT_DIR}/${EE_SERVICE_NAME}" "${backup_path}/${EE_SERVICE_NAME}" || return 1
+    fi
+    if [[ -f "${MTG_CONFIG_DIR}/config.toml" ]]; then
+      cp -a "${MTG_CONFIG_DIR}/config.toml" "${backup_path}/config.toml" || return 1
+    fi
   fi
   if [[ "$DEPLOY_DD" -eq 1 ]]; then
-    [[ -f "$DD_ENV_FILE" ]] && cp -a "$DD_ENV_FILE" "${backup_path}/dd.env"
-    [[ -f "/etc/systemd/system/${DD_SERVICE_NAME}" ]] && cp -a "/etc/systemd/system/${DD_SERVICE_NAME}" "${backup_path}/${DD_SERVICE_NAME}"
+    if [[ -f "$DD_ENV_FILE" ]]; then
+      cp -a "$DD_ENV_FILE" "${backup_path}/dd.env" || return 1
+    fi
+    if [[ -f "${SYSTEMD_UNIT_DIR}/${DD_SERVICE_NAME}" ]]; then
+      cp -a "${SYSTEMD_UNIT_DIR}/${DD_SERVICE_NAME}" "${backup_path}/${DD_SERVICE_NAME}" || return 1
+    fi
   fi
 
-  cat >"${backup_path}/meta.env" <<EOF
+  cat >"${backup_path}/meta.env" <<EOF || return 1
 ACTION=${action}
 DEPLOY_EE=${DEPLOY_EE}
 DEPLOY_DD=${DEPLOY_DD}
 CREATED_AT=$(date -Iseconds)
+SNAPSHOT_VERSION=1
+EE_ENV_PRESENT=$([[ -f "$EE_ENV_FILE" ]] && echo 1 || echo 0)
+DD_ENV_PRESENT=$([[ -f "$DD_ENV_FILE" ]] && echo 1 || echo 0)
+EE_UNIT_PRESENT=$([[ -f "${SYSTEMD_UNIT_DIR}/${EE_SERVICE_NAME}" ]] && echo 1 || echo 0)
+DD_UNIT_PRESENT=$([[ -f "${SYSTEMD_UNIT_DIR}/${DD_SERVICE_NAME}" ]] && echo 1 || echo 0)
+EE_CONFIG_PRESENT=$([[ -f "${MTG_CONFIG_DIR}/config.toml" ]] && echo 1 || echo 0)
+EE_ACTIVE=$([[ ! -f "${CONFIG_DIR}/paused-ee" ]] && systemctl is-active --quiet "$EE_SERVICE_NAME" >/dev/null 2>&1 && echo 1 || echo 0)
+DD_ACTIVE=$([[ ! -f "${CONFIG_DIR}/paused-dd" ]] && systemctl is-active --quiet "$DD_SERVICE_NAME" >/dev/null 2>&1 && echo 1 || echo 0)
 EOF
 
+  if [[ "$DEPLOY_EE" -eq 1 && -f "${CONFIG_DIR}/paused-ee" ]]; then cp -a "${CONFIG_DIR}/paused-ee" "${backup_path}/ee.paused" || return 1; fi
+  if [[ "$DEPLOY_DD" -eq 1 && -f "${CONFIG_DIR}/paused-dd" ]]; then cp -a "${CONFIG_DIR}/paused-dd" "${backup_path}/dd.paused" || return 1; fi
+  if [[ "$action" == uninstall || "$action" == rollback ]]; then
+    local unit=""
+    printf 'MONITOR_CAPTURED=1\nMONITOR_ACTIVE=%s\n' "$(systemctl is-active --quiet "$MONITOR_TIMER" >/dev/null 2>&1 && echo 1 || echo 0)" >>"${backup_path}/meta.env" || return 1
+    for unit in "$MONITOR_SERVICE" "$MONITOR_TIMER"; do
+      if [[ -f "${SYSTEMD_UNIT_DIR}/${unit}" ]]; then cp -a "${SYSTEMD_UNIT_DIR}/${unit}" "$backup_path/" || return 1; fi
+    done
+  fi
+  touch "${backup_path}/.complete" || return 1
+  LAST_BACKUP_PATH="$backup_path"
   t note_backup_saved
   echo "${backup_path}"
 }
@@ -1705,37 +1819,41 @@ restore_backup() {
   local backup_path="$1"
   local restored=0
   local unit_changed=0
+  if [[ "$(read_env_key "${backup_path}/meta.env" SNAPSHOT_VERSION || true)" == 1 ]]; then
+    restore_snapshot "$backup_path"
+    return
+  fi
 
   if [[ "$DEPLOY_EE" -eq 1 ]]; then
     if [[ -f "${backup_path}/ee.env" ]]; then
-      ensure_config_dir
-      cp -a "${backup_path}/ee.env" "$EE_ENV_FILE"
-      chmod 600 "$EE_ENV_FILE"
+      ensure_config_dir || return 1
+      cp -a "${backup_path}/ee.env" "$EE_ENV_FILE" || return 1
+      chmod 600 "$EE_ENV_FILE" || return 1
       restored=1
     fi
     if [[ -f "${backup_path}/${EE_SERVICE_NAME}" ]]; then
-      cp -a "${backup_path}/${EE_SERVICE_NAME}" "/etc/systemd/system/${EE_SERVICE_NAME}"
+      cp -a "${backup_path}/${EE_SERVICE_NAME}" "${SYSTEMD_UNIT_DIR}/${EE_SERVICE_NAME}" || return 1
       unit_changed=1
       restored=1
     fi
     if [[ -f "${backup_path}/config.toml" ]]; then
-      mkdir -p /opt/mtg
-      chmod 700 /opt/mtg
-      cp -a "${backup_path}/config.toml" /opt/mtg/config.toml
-      chmod 600 /opt/mtg/config.toml
+      mkdir -p "$MTG_CONFIG_DIR" || return 1
+      chmod 700 "$MTG_CONFIG_DIR" || return 1
+      cp -a "${backup_path}/config.toml" "${MTG_CONFIG_DIR}/config.toml" || return 1
+      chmod 600 "${MTG_CONFIG_DIR}/config.toml" || return 1
       restored=1
     fi
   fi
 
   if [[ "$DEPLOY_DD" -eq 1 ]]; then
     if [[ -f "${backup_path}/dd.env" ]]; then
-      ensure_config_dir
-      cp -a "${backup_path}/dd.env" "$DD_ENV_FILE"
-      chmod 600 "$DD_ENV_FILE"
+      ensure_config_dir || return 1
+      cp -a "${backup_path}/dd.env" "$DD_ENV_FILE" || return 1
+      chmod 600 "$DD_ENV_FILE" || return 1
       restored=1
     fi
     if [[ -f "${backup_path}/${DD_SERVICE_NAME}" ]]; then
-      cp -a "${backup_path}/${DD_SERVICE_NAME}" "/etc/systemd/system/${DD_SERVICE_NAME}"
+      cp -a "${backup_path}/${DD_SERVICE_NAME}" "${SYSTEMD_UNIT_DIR}/${DD_SERVICE_NAME}" || return 1
       unit_changed=1
       restored=1
     fi
@@ -1747,13 +1865,15 @@ restore_backup() {
   fi
 
   if [[ "$unit_changed" -eq 1 ]]; then
-    systemd_reload
+    systemd_reload || return 1
   fi
-  if [[ "$DEPLOY_EE" -eq 1 ]] && [[ -f "$EE_ENV_FILE" ]] && [[ -f "/etc/systemd/system/${EE_SERVICE_NAME}" ]]; then
-    systemctl enable --now "$EE_SERVICE_NAME" >/dev/null 2>&1 || true
+  if [[ "$DEPLOY_EE" -eq 1 ]] && [[ -f "$EE_ENV_FILE" ]] && [[ -f "${SYSTEMD_UNIT_DIR}/${EE_SERVICE_NAME}" ]]; then
+    systemctl enable "$EE_SERVICE_NAME" || return 1
+    systemctl restart "$EE_SERVICE_NAME" || return 1
   fi
-  if [[ "$DEPLOY_DD" -eq 1 ]] && [[ -f "$DD_ENV_FILE" ]] && [[ -f "/etc/systemd/system/${DD_SERVICE_NAME}" ]]; then
-    systemctl enable --now "$DD_SERVICE_NAME" >/dev/null 2>&1 || true
+  if [[ "$DEPLOY_DD" -eq 1 ]] && [[ -f "$DD_ENV_FILE" ]] && [[ -f "${SYSTEMD_UNIT_DIR}/${DD_SERVICE_NAME}" ]]; then
+    systemctl enable "$DD_SERVICE_NAME" || return 1
+    systemctl restart "$DD_SERVICE_NAME" || return 1
   fi
   return 0
 }
@@ -1762,8 +1882,8 @@ normalize_image_to_digest() {
   local mode="$1"
   local image_ref="$2"
   local repo_digest=""
-  local fallback=""
 
+  [[ "$mode" == ee || "$mode" == dd ]] || return 1
   if is_valid_digest_image_ref "$image_ref"; then
     printf '%s' "$image_ref"
     return 0
@@ -1775,13 +1895,8 @@ normalize_image_to_digest() {
     return 0
   fi
 
-  t warn_image_not_digest
-  if [[ "$mode" == "ee" ]]; then
-    fallback="$MTG_IMAGE"
-  else
-    fallback="$DD_IMAGE"
-  fi
-  printf '%s' "$fallback"
+  t warn_image_not_digest >&2
+  return 1
 }
 
 docker_container_exists() {
@@ -1884,8 +1999,8 @@ read_env_key() {
 }
 
 extract_ee_secret_from_config() {
-  if [[ -f /opt/mtg/config.toml ]]; then
-    sed -n 's/^[[:space:]]*secret[[:space:]]*=[[:space:]]*"\([A-Za-z0-9]\+\)".*/\1/p' /opt/mtg/config.toml | head -n1
+  if [[ -f ${MTG_CONFIG_DIR}/config.toml ]]; then
+    sed -n 's/^[[:space:]]*secret[[:space:]]*=[[:space:]]*"\([A-Za-z0-9]\+\)".*/\1/p' "${MTG_CONFIG_DIR}/config.toml" | head -n1
   fi
 }
 
@@ -1919,12 +2034,13 @@ diag_domain_dns_view() {
   local resolver=""
   local records=""
   printf '[info] %s: %s\n' "$(t diag_public_dns)" "$domain"
-  if is_valid_ipv4 "$domain"; then
+  if is_valid_ipv4 "$domain" || is_valid_ipv6 "$domain"; then
     printf '[info] %s\n' "$(t diag_literal_ipv4)"
     return 0
   fi
   if ! command -v dig >/dev/null 2>&1; then
     printf '[warn] %s: dig\n' "$(t diag_tool_missing)"
+    DIAG_DNS_ISSUE=1
     return 0
   fi
   for resolver in 1.1.1.1 8.8.8.8 9.9.9.9; do
@@ -1933,9 +2049,11 @@ diag_domain_dns_view() {
       if [[ -z "$records" ]]; then
         printf '[warn] %s A %s\n' "$resolver" "$(t diag_resolver_missing)"
         DIAG_DNS_ISSUE=1
-      elif [[ -n "$server_ipv4" ]] && ! grep -qx "$server_ipv4" <<<"$records"; then
+      elif [[ -n "$server_ipv4" ]] && ! dns_records_match "$server_ipv4" "$records"; then
         printf '[warn] %s A %s %s\n' "$resolver" "$(t diag_resolver_mismatch)" "$(diag_format_records "$records")"
         DIAG_DNS_ISSUE=1
+      elif [[ -z "$server_ipv4" ]]; then
+        printf '[info] %s A %s\n' "$resolver" "$(diag_format_records "$records")"
       else
         printf '[ok] %s A %s %s\n' "$resolver" "$(t diag_resolver_match)" "$(diag_format_records "$records")"
       fi
@@ -1945,9 +2063,11 @@ diag_domain_dns_view() {
       if [[ -z "$records" ]]; then
         printf '[warn] %s AAAA %s\n' "$resolver" "$(t diag_resolver_missing)"
         DIAG_DNS_ISSUE=1
-      elif [[ -n "$server_ipv6" ]] && ! grep -Fqx "$server_ipv6" <<<"$records"; then
+      elif [[ -n "$server_ipv6" ]] && ! dns_records_match "$server_ipv6" "$records"; then
         printf '[warn] %s AAAA %s %s\n' "$resolver" "$(t diag_resolver_mismatch)" "$(diag_format_records "$records")"
         DIAG_DNS_ISSUE=1
+      elif [[ -z "$server_ipv6" ]]; then
+        printf '[info] %s AAAA %s\n' "$resolver" "$(diag_format_records "$records")"
       else
         printf '[ok] %s AAAA %s %s\n' "$resolver" "$(t diag_resolver_match)" "$(diag_format_records "$records")"
       fi
@@ -1989,17 +2109,16 @@ diag_mode_regional() {
   [[ -f "$env_file" ]] || return 0
   DIAG_ACTIVE_MODES=$((DIAG_ACTIVE_MODES + 1))
 
-  # shellcheck disable=SC1090
-  source "$env_file"
+  load_mode_config "$mode" || return 1
   if [[ "$mode" == "ee" ]]; then
     entry_domain="${EE_DOMAIN:-}"
-    bind_ipv4="${EE_BIND_IP:-0.0.0.0}"
+    bind_ipv4="${EE_BIND_IP-0.0.0.0}"
     bind_ipv6="${EE_BIND_IPV6:-}"
     port="${EE_PORT:-}"
     front_domain="${FRONT_DOMAIN:-}"
   else
     entry_domain="${DD_DOMAIN:-}"
-    bind_ipv4="${DD_BIND_IP:-0.0.0.0}"
+    bind_ipv4="${DD_BIND_IP-0.0.0.0}"
     bind_ipv6="${DD_BIND_IPV6:-}"
     port="${DD_PORT:-}"
   fi
@@ -2014,7 +2133,8 @@ diag_mode_regional() {
     printf '[info] %s: %s\n' "$(t diag_front_domain)" "$front_domain"
     if ! command -v openssl >/dev/null 2>&1; then
       printf '[warn] %s: openssl\n' "$(t diag_tool_missing)"
-    elif timeout 6 openssl s_client -connect "${front_domain}:443" -servername "${front_domain}" </dev/null >/dev/null 2>&1; then
+      DIAG_FRONT_ISSUE=1
+    elif timeout 6 openssl s_client -connect "${front_domain}:443" -servername "${front_domain}" -verify_return_error -verify_hostname "$front_domain" </dev/null >/dev/null 2>&1; then
       printf '[ok] %s\n' "$(t diag_front_tls_ok)"
     else
       printf '[warn] %s\n' "$(t diag_front_tls_fail)"
@@ -2071,7 +2191,7 @@ check_mode_health() {
     if [[ "$mode_container_running" -eq 1 ]]; then
       printf '[%s] %s (%s)\n' "$mode" "$(t note_legacy_detected)" "$env_file"
       printf '[%s] %s\n' "$mode" "$(t note_legacy_migrate)"
-      return 0
+      return 2
     fi
     printf '[%s] %s: %s\n' "$mode" "$(t hc_not_installed)" "$env_file"
     return 2
@@ -2087,16 +2207,15 @@ check_mode_health() {
     ok=1
   fi
 
-  # shellcheck disable=SC1090
-  source "$env_file"
+  load_mode_config "$mode" || return 1
   if [[ "$mode" == "ee" ]]; then
     port="${EE_PORT}"
-    bind_ipv4="${EE_BIND_IP:-0.0.0.0}"
+    bind_ipv4="${EE_BIND_IP-0.0.0.0}"
     bind_ipv6="${EE_BIND_IPV6:-}"
     expected_image="${MTG_IMAGE:-}"
   else
     port="${DD_PORT}"
-    bind_ipv4="${DD_BIND_IP:-0.0.0.0}"
+    bind_ipv4="${DD_BIND_IP-0.0.0.0}"
     bind_ipv6="${DD_BIND_IPV6:-}"
     expected_image="${DD_IMAGE:-}"
     if ! normalize_dd_secret "${DD_BASE_SECRET:-${DD_SECRET:-}}"; then
@@ -2125,7 +2244,7 @@ check_mode_health() {
   actual_bind_ipv4_port="$(docker_binding_port_by_family "$container_name" "$container_port_key" "ipv4")"
   actual_bind_ipv6="$(docker_binding_ip_by_family "$container_name" "$container_port_key" "ipv6")"
   actual_bind_ipv6_port="$(docker_binding_port_by_family "$container_name" "$container_port_key" "ipv6")"
-  if [[ -n "$bind_ipv4" ]] && { [[ "$actual_bind_ipv4" != "$bind_ipv4" ]] || [[ "$actual_bind_ipv4_port" != "$port" ]]; }; then
+  if [[ -n "$bind_ipv4" ]] && { [[ "$(canonical_ip "$actual_bind_ipv4" || true)" != "$(canonical_ip "$bind_ipv4" || true)" ]] || [[ "$actual_bind_ipv4_port" != "$port" ]]; }; then
     echo "[${mode}] $(t err_port_binding_mismatch)"
     echo "[${mode}] $(t label_expected)=$(format_bind_targets "$bind_ipv4" "$bind_ipv6" "$port") $(t label_actual)=$(format_bind_targets "$actual_bind_ipv4" "$actual_bind_ipv6" "${actual_bind_ipv4_port:-${actual_bind_ipv6_port:-}}")"
     ok=1
@@ -2135,7 +2254,7 @@ check_mode_health() {
     echo "[${mode}] $(t label_expected)=$(format_bind_targets "$bind_ipv4" "$bind_ipv6" "$port") $(t label_actual)=$(format_bind_targets "$actual_bind_ipv4" "$actual_bind_ipv6" "${actual_bind_ipv4_port:-${actual_bind_ipv6_port:-}}")"
     ok=1
   fi
-  if [[ -n "$bind_ipv6" ]] && { [[ "$actual_bind_ipv6" != "$bind_ipv6" ]] || [[ "$actual_bind_ipv6_port" != "$port" ]]; }; then
+  if [[ -n "$bind_ipv6" ]] && { [[ "$(canonical_ip "$actual_bind_ipv6" || true)" != "$(canonical_ip "$bind_ipv6" || true)" ]] || [[ "$actual_bind_ipv6_port" != "$port" ]]; }; then
     echo "[${mode}] $(t err_port_binding_mismatch)"
     echo "[${mode}] $(t label_expected)=$(format_bind_targets "$bind_ipv4" "$bind_ipv6" "$port") $(t label_actual)=$(format_bind_targets "$actual_bind_ipv4" "$actual_bind_ipv6" "${actual_bind_ipv4_port:-${actual_bind_ipv6_port:-}}")"
     ok=1
@@ -2163,46 +2282,54 @@ check_mode_health() {
 }
 
 cmd_healthcheck() {
-  local failed=0
-  local rc=0
-  if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    check_mode_health ee || rc=$?
-    if [[ "$rc" -eq 1 ]]; then
-      failed=1
+  local hc_mode="" hc_rc=0 hc_ok=0 hc_missing=0 hc_failed=0
+  while read -r hc_mode; do
+    hc_rc=0
+    safe_output check_mode_health "$hc_mode" || hc_rc=$?
+    case "$hc_rc" in
+      0) hc_ok=$((hc_ok + 1)) ;;
+      2) hc_missing=$((hc_missing + 1)) ;;
+      *) hc_failed=1 ;;
+    esac
+  done < <(selected_modes)
+  if [[ "$hc_failed" -eq 1 ]]; then return 1; fi
+  if [[ "$hc_ok" -eq 0 ]]; then return 2; fi
+  if [[ "$hc_missing" -gt 0 && ("$DEPLOY_EE" -eq 0 || "$DEPLOY_DD" -eq 0) ]]; then return 2; fi
+  return 0
+}
+
+wait_for_healthcheck() {
+  local attempt
+  for ((attempt = 1; attempt <= 10; attempt++)); do
+    if cmd_healthcheck; then
+      return 0
     fi
-  fi
-  rc=0
-  if [[ "$DEPLOY_DD" -eq 1 ]]; then
-    check_mode_health dd || rc=$?
-    if [[ "$rc" -eq 1 ]]; then
-      failed=1
+    if ((attempt < 10)); then
+      sleep 1
     fi
-  fi
-  return "$failed"
+  done
+  return 1
 }
 
 cmd_self_heal() {
-  local failed=0
-  local rc=0
-  if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    check_mode_health ee || rc=$?
-    if [[ "$rc" -eq 1 ]]; then
-      t note_attempt_restart_ee
-      systemctl restart "$EE_SERVICE_NAME" || true
+  local mode="" rc=0 failed=0 found=0
+  while read -r mode; do
+    rc=0
+    safe_output check_mode_health "$mode" || rc=$?
+    [[ "$rc" != 2 ]] || continue
+    found=1
+    if [[ "$rc" -ne 0 ]]; then
+      t "note_attempt_restart_${mode}"
+      rm -f "${CONFIG_DIR}/paused-${mode}" || return 1
+      systemctl restart "$(mode_service "$mode")" || {
+        failed=1
+        continue
+      }
       sleep 2
-      check_mode_health ee || failed=1
+      safe_output check_mode_health "$mode" || failed=1
     fi
-  fi
-  rc=0
-  if [[ "$DEPLOY_DD" -eq 1 ]]; then
-    check_mode_health dd || rc=$?
-    if [[ "$rc" -eq 1 ]]; then
-      t note_attempt_restart_dd
-      systemctl restart "$DD_SERVICE_NAME" || true
-      sleep 2
-      check_mode_health dd || failed=1
-    fi
-  fi
+  done < <(selected_modes)
+  [[ "$found" -eq 1 ]] || return 2
   return "$failed"
 }
 
@@ -2210,8 +2337,9 @@ cmd_regional_diagnose() {
   local server_ipv4=""
   local server_ipv6=""
   diag_reset_state
-  server_ipv4="$(get_primary_ipv4)"
-  server_ipv6="$(get_primary_ipv6)"
+  server_ipv4="$(diagnostic_public_address 4 || true)"
+  server_ipv6="$(diagnostic_public_address 6 || true)"
+  if [[ -z "$server_ipv4" && -z "$server_ipv6" ]]; then t public_unknown; fi
 
   echo
   t step_region_diag
@@ -2245,31 +2373,22 @@ cmd_regional_diagnose() {
   fi
   printf '[note] %s\n' "$(t diag_country_probe_needed)"
 
-  if [[ "$DIAG_LOCAL_ISSUE" -eq 1 ]]; then
+  if [[ "$DIAG_DNS_ISSUE" -eq 1 ]]; then t dns_fix; fi
+  if [[ "$DIAG_FRONT_ISSUE" -eq 1 ]]; then t tls_fix; fi
+  if [[ "$DIAG_LOCAL_ISSUE" -eq 1 || "$DIAG_DNS_ISSUE" -eq 1 || "$DIAG_FRONT_ISSUE" -eq 1 ]]; then
     return 1
   fi
   return 0
 }
 
 cmd_uninstall() {
-  if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    systemctl disable --now "$EE_SERVICE_NAME" >/dev/null 2>&1 || true
-    rm -f /etc/systemd/system/"$EE_SERVICE_NAME" "$EE_ENV_FILE"
-    docker rm -f "$EE_CONTAINER_NAME" >/dev/null 2>&1 || true
-    rm -f /opt/mtg/config.toml
-  fi
-  if [[ "$DEPLOY_DD" -eq 1 ]]; then
-    systemctl disable --now "$DD_SERVICE_NAME" >/dev/null 2>&1 || true
-    rm -f /etc/systemd/system/"$DD_SERVICE_NAME" "$DD_ENV_FILE"
-    docker rm -f "$DD_CONTAINER_NAME" >/dev/null 2>&1 || true
-  fi
-  systemd_reload
-  rmdir "$CONFIG_DIR" >/dev/null 2>&1 || true
+  manager_uninstall
 }
 
 cmd_rollback() {
   local backup_id="${1:-}"
   local backup_path=""
+  local current=""
 
   echo
   t step_rollback
@@ -2290,192 +2409,37 @@ cmd_rollback() {
   fi
   echo "$backup_path"
 
-  restore_backup "$backup_path"
+  create_backup rollback || return 1
+  current="$LAST_BACKUP_PATH"
+  if ! restore_backup "$backup_path" || ! verify_recovery "$backup_path"; then
+    recover_transaction "$current"
+    return 1
+  fi
+  prune_backups "$BACKUP_KEEP" || return 1
   t note_rollback_done
-  cmd_healthcheck || true
 }
 
 cmd_migrate() {
-  local ee_domain_arg="$1"
-  local dd_domain_arg="$2"
-  local front_domain_arg="$3"
-  local image_ref=""
-  local migrated_any=0
-  local ee_legacy_container=""
-  local dd_legacy_container=""
-  local detected_server_ipv4=""
-  local detected_server_ipv6=""
-  local existing_ee_domain=""
-  local existing_dd_domain=""
-  local existing_front_domain=""
-  local fallback_host=""
-
-  echo
-  t step_migrate
-  t step_backup
-  create_backup "migrate"
-  ensure_config_dir
-  mkdir -p /opt/mtg
-  chmod 700 /opt/mtg
-  detected_server_ipv4="$(get_primary_ipv4)"
-  detected_server_ipv6="$(get_primary_ipv6)"
-
-  if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    ee_legacy_container="$(detect_legacy_running_container ee || true)"
-  fi
-  if [[ "$DEPLOY_DD" -eq 1 ]]; then
-    dd_legacy_container="$(detect_legacy_running_container dd || true)"
-  fi
-
-  if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    if [[ -z "$ee_legacy_container" ]]; then
-      t err_legacy_container_missing
-      echo "$EE_CONTAINER_NAME"
-      return 1
-    fi
-  fi
-  if [[ "$DEPLOY_DD" -eq 1 ]]; then
-    if [[ -z "$dd_legacy_container" ]]; then
-      t err_legacy_container_missing
-      echo "$DD_CONTAINER_NAME"
-      return 1
-    fi
-  fi
-
-  if [[ "$DEPLOY_EE" -eq 0 && "$DEPLOY_DD" -eq 0 ]]; then
-    t err_migrate_no_legacy
-    return 1
-  fi
-
-  if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    existing_ee_domain="$(read_env_key "$EE_ENV_FILE" "EE_DOMAIN" || true)"
-    EE_DOMAIN="${ee_domain_arg:-$existing_ee_domain}"
-    existing_front_domain="$(read_env_key "$EE_ENV_FILE" "FRONT_DOMAIN" || true)"
-    FRONT_DOMAIN="${front_domain_arg:-$existing_front_domain}"
-    EE_BIND_IP="$(docker_binding_ip_by_family "$ee_legacy_container" "3128/tcp" "ipv4")"
-    EE_BIND_IPV6="$(docker_binding_ip_by_family "$ee_legacy_container" "3128/tcp" "ipv6")"
-    EE_PORT="$(docker_binding_port_by_family "$ee_legacy_container" "3128/tcp" "ipv4")"
-    if [[ -z "$EE_PORT" ]]; then
-      EE_PORT="$(docker_binding_port_by_family "$ee_legacy_container" "3128/tcp" "ipv6")"
-    fi
-    if [[ -z "$EE_PORT" ]]; then
-      t err_migrate_port_missing
-      return 1
-    fi
-    if [[ -z "$EE_BIND_IP" ]]; then
-      EE_BIND_IP="0.0.0.0"
-    fi
-    fallback_host="${detected_server_ipv4:-$EE_BIND_IP}"
-    if [[ -z "$fallback_host" || "$fallback_host" == "0.0.0.0" ]]; then
-      fallback_host="$(hostname -I 2>/dev/null | awk '{print $1}')"
-    fi
-    fallback_host="${fallback_host:-${detected_server_ipv6:-127.0.0.1}}"
-    if [[ -z "$EE_DOMAIN" ]]; then
-      EE_DOMAIN="$fallback_host"
-      printf '%s %s\n' "$(t warn_ee_domain_fallback)" "$EE_DOMAIN"
-    fi
-    if [[ -z "$FRONT_DOMAIN" ]]; then
-      FRONT_DOMAIN="www.cloudflare.com"
-      printf '%s %s\n' "$(t warn_front_domain_fallback)" "$FRONT_DOMAIN"
-    fi
-    image_ref="$(docker inspect -f '{{.Config.Image}}' "$ee_legacy_container" 2>/dev/null || true)"
-    MTG_IMAGE="$(normalize_image_to_digest ee "$image_ref")"
-    printf '%s %s\n' "$(t note_using_digest)" "$MTG_IMAGE"
-    EE_SECRET="$(extract_ee_secret_from_config || true)"
-    if [[ -z "$EE_SECRET" ]]; then
-      EE_SECRET="$(extract_ee_secret_from_container "$ee_legacy_container" || true)"
-    fi
-    if [[ -z "$EE_SECRET" ]]; then
-      t err_ee_secret_autodetect_fail
-      return 1
-    fi
-    umask 077
-    cat >/opt/mtg/config.toml <<EOF
-secret = "$EE_SECRET"
-bind-to = "0.0.0.0:3128"
-EOF
-    chmod 600 /opt/mtg/config.toml
-    write_ee_env_file
-    write_ee_systemd_unit
-    migrated_any=1
-  fi
-
-  if [[ "$DEPLOY_DD" -eq 1 ]]; then
-    existing_dd_domain="$(read_env_key "$DD_ENV_FILE" "DD_DOMAIN" || true)"
-    DD_DOMAIN="${dd_domain_arg:-$existing_dd_domain}"
-    DD_BIND_IP="$(docker_binding_ip_by_family "$dd_legacy_container" "443/tcp" "ipv4")"
-    DD_BIND_IPV6="$(docker_binding_ip_by_family "$dd_legacy_container" "443/tcp" "ipv6")"
-    DD_PORT="$(docker_binding_port_by_family "$dd_legacy_container" "443/tcp" "ipv4")"
-    if [[ -z "$DD_PORT" ]]; then
-      DD_PORT="$(docker_binding_port_by_family "$dd_legacy_container" "443/tcp" "ipv6")"
-    fi
-    if [[ -z "$DD_PORT" ]]; then
-      t err_migrate_port_missing
-      return 1
-    fi
-    if [[ -z "$DD_BIND_IP" ]]; then
-      DD_BIND_IP="0.0.0.0"
-    fi
-    fallback_host="${detected_server_ipv4:-$DD_BIND_IP}"
-    if [[ -z "$fallback_host" || "$fallback_host" == "0.0.0.0" ]]; then
-      fallback_host="$(hostname -I 2>/dev/null | awk '{print $1}')"
-    fi
-    fallback_host="${fallback_host:-${detected_server_ipv6:-127.0.0.1}}"
-    if [[ -z "$DD_DOMAIN" ]]; then
-      DD_DOMAIN="$fallback_host"
-      printf '%s %s\n' "$(t warn_dd_domain_fallback)" "$DD_DOMAIN"
-    fi
-    image_ref="$(docker inspect -f '{{.Config.Image}}' "$dd_legacy_container" 2>/dev/null || true)"
-    DD_IMAGE="$(normalize_image_to_digest dd "$image_ref")"
-    printf '%s %s\n' "$(t note_using_digest)" "$DD_IMAGE"
-
-    DD_BASE_SECRET="$(docker_env_value "$dd_legacy_container" "SECRET")"
-    if ! normalize_dd_secret "$DD_BASE_SECRET"; then
-      t err_invalid_dd_secret
-      return 1
-    fi
-    write_dd_env_file
-    write_dd_systemd_unit
-    migrated_any=1
-  fi
-
-  if [[ "$migrated_any" -eq 0 ]]; then
-    t err_migrate_no_legacy
-    return 1
-  fi
-
-  if [[ "$DEPLOY_EE" -eq 1 ]] && [[ -n "$ee_legacy_container" ]] && [[ "$ee_legacy_container" != "$EE_CONTAINER_NAME" ]]; then
-    docker rm -f "$ee_legacy_container" >/dev/null 2>&1 || true
-  fi
-  if [[ "$DEPLOY_DD" -eq 1 ]] && [[ -n "$dd_legacy_container" ]] && [[ "$dd_legacy_container" != "$DD_CONTAINER_NAME" ]]; then
-    docker rm -f "$dd_legacy_container" >/dev/null 2>&1 || true
-  fi
-
-  systemd_reload
-  if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    systemctl enable --now "$EE_SERVICE_NAME" >/dev/null
-  fi
-  if [[ "$DEPLOY_DD" -eq 1 ]]; then
-    systemctl enable --now "$DD_SERVICE_NAME" >/dev/null
-  fi
-  t note_migrate_done
-  cmd_healthcheck || true
+  migrate_transaction "$@"
 }
 
 cmd_self_update() {
-  local script_dir
-  script_dir="$(cd "$(dirname "$0")" && pwd -P)"
-  if [[ ! -d "${script_dir}/.git" ]]; then
+  local script_dir="$INSTALLER_DIR" dirty=""
+  if ! git -C "$script_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     t err_self_update_not_git
-    echo "${script_dir}"
     return 1
   fi
-  echo
+  dirty="$(git -C "$script_dir" status --porcelain)" || return 1
+  [[ -z "$dirty" ]] || {
+    t update_dirty
+    return 1
+  }
   t step_self_update
-  git -C "$script_dir" pull --ff-only
+  git -C "$script_dir" pull --ff-only || return 1
+  if [[ -f "${SYSTEMD_UNIT_DIR}/${MONITOR_TIMER}" ]]; then refresh_monitor_runner || return 1; fi
   t note_self_update_done
   t note_self_update_rerun
-  echo "sudo bash ${script_dir}/install.sh"
+  printf 'sudo bash %q/install.sh\n' "$script_dir"
 }
 
 upgrade_tracking_ref() {
@@ -2520,8 +2484,8 @@ resolve_upgrade_image_arg() {
   fi
 
   if [[ "${normalized_input,,}" == "auto" ]]; then
-    tracking_ref="$(upgrade_tracking_ref "$mode" "$current_image")"
-    docker pull "$tracking_ref" >/dev/null
+    tracking_ref="$(upgrade_tracking_ref "$mode" "$current_image")" || return 1
+    docker pull "$tracking_ref" >/dev/null || return 1
     resolved_digest="$(docker image inspect "$tracking_ref" --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
     if ! is_valid_digest_image_ref "$resolved_digest"; then
       return 1
@@ -2533,6 +2497,33 @@ resolve_upgrade_image_arg() {
   printf '%s' "$normalized_input"
 }
 
+apply_upgrade_images() {
+  local mtg_new_image="$1"
+  local dd_new_image="$2"
+
+  if [[ "$DEPLOY_EE" -eq 1 ]]; then
+    upsert_env_key "$EE_ENV_FILE" "MTG_IMAGE" "$mtg_new_image" || return 1
+    MTG_IMAGE="$mtg_new_image"
+    write_ee_systemd_unit || return 1
+  fi
+  if [[ "$DEPLOY_DD" -eq 1 ]]; then
+    upsert_env_key "$DD_ENV_FILE" "DD_BASE_SECRET" "$DD_BASE_SECRET" || return 1
+    upsert_env_key "$DD_ENV_FILE" "DD_SECRET" "$DD_SECRET" || return 1
+    upsert_env_key "$DD_ENV_FILE" "DD_IMAGE" "$dd_new_image" || return 1
+    DD_IMAGE="$dd_new_image"
+    write_dd_systemd_unit || return 1
+  fi
+
+  systemd_reload || return 1
+  if [[ "$DEPLOY_EE" -eq 1 ]]; then
+    systemctl restart "$EE_SERVICE_NAME" || return 1
+  fi
+  if [[ "$DEPLOY_DD" -eq 1 ]]; then
+    systemctl restart "$DD_SERVICE_NAME" || return 1
+  fi
+  wait_for_healthcheck
+}
+
 cmd_upgrade() {
   local mtg_input="$1"
   local dd_input="$2"
@@ -2540,19 +2531,18 @@ cmd_upgrade() {
   local dd_new_image=""
   local current_mtg_image=""
   local current_dd_image=""
+  local backup_path=""
 
   echo
   t note_upgrade_scope
-  t step_backup
-  create_backup "upgrade"
 
+  # Resolve and validate every selected mode before changing persistent state.
   if [[ "$DEPLOY_EE" -eq 1 ]]; then
     [[ -f "$EE_ENV_FILE" ]] || {
       t err_not_installed_ee
       return 1
     }
-    # shellcheck disable=SC1090
-    source "$EE_ENV_FILE"
+    load_env_file "$EE_ENV_FILE" || return 1
     current_mtg_image="${MTG_IMAGE:-}"
     if ! mtg_new_image="$(resolve_upgrade_image_arg ee "$mtg_input" "$current_mtg_image")"; then
       printf '%s %s\n' "$(t err_invalid_mtg_image)" "${mtg_input:-auto}"
@@ -2565,11 +2555,6 @@ cmd_upgrade() {
       printf '%s %s\n' "$(t err_invalid_mtg_image)" "$mtg_new_image"
       return 1
     fi
-    upsert_env_key "$EE_ENV_FILE" "MTG_IMAGE" "$mtg_new_image"
-    docker pull "$mtg_new_image"
-    write_ee_systemd_unit
-    systemd_reload
-    systemctl restart "$EE_SERVICE_NAME"
   fi
 
   if [[ "$DEPLOY_DD" -eq 1 ]]; then
@@ -2577,14 +2562,11 @@ cmd_upgrade() {
       t err_not_installed_dd
       return 1
     }
-    # shellcheck disable=SC1090
-    source "$DD_ENV_FILE"
+    load_env_file "$DD_ENV_FILE" || return 1
     if ! normalize_dd_secret "${DD_BASE_SECRET:-${DD_SECRET:-}}"; then
       t err_invalid_dd_secret
       return 1
     fi
-    upsert_env_key "$DD_ENV_FILE" "DD_BASE_SECRET" "$DD_BASE_SECRET"
-    upsert_env_key "$DD_ENV_FILE" "DD_SECRET" "$DD_SECRET"
     current_dd_image="${DD_IMAGE:-}"
     if ! dd_new_image="$(resolve_upgrade_image_arg dd "$dd_input" "$current_dd_image")"; then
       printf '%s %s\n' "$(t err_invalid_dd_image)" "${dd_input:-auto}"
@@ -2597,12 +2579,28 @@ cmd_upgrade() {
       printf '%s %s\n' "$(t err_invalid_dd_image)" "$dd_new_image"
       return 1
     fi
-    upsert_env_key "$DD_ENV_FILE" "DD_IMAGE" "$dd_new_image"
-    docker pull "$dd_new_image"
-    write_dd_systemd_unit
-    systemd_reload
-    systemctl restart "$DD_SERVICE_NAME"
   fi
+
+  # Pull all pinned artifacts before touching configs or restarting either service.
+  if [[ "$DEPLOY_EE" -eq 1 ]]; then
+    docker pull "$mtg_new_image" || return 1
+  fi
+  if [[ "$DEPLOY_DD" -eq 1 ]]; then
+    docker pull "$dd_new_image" || return 1
+  fi
+
+  t step_backup
+  create_backup "upgrade" || return 1
+  backup_path="$LAST_BACKUP_PATH"
+  if ! apply_upgrade_images "$mtg_new_image" "$dd_new_image"; then
+    t err_upgrade_failed
+    if ! restore_backup "$backup_path" || ! verify_recovery "$backup_path"; then
+      t err_upgrade_rollback_failed
+      echo "$backup_path"
+    fi
+    return 1
+  fi
+  prune_backups "$BACKUP_KEEP"
 }
 
 normalize_dd_secret() {
@@ -2620,730 +2618,376 @@ normalize_dd_secret() {
   return 1
 }
 
-cmd_rotate_secret() {
-  local mode="$1"
-  local input_secret="$2"
-  local front_domain_arg="$3"
-  local rotate_title=""
-  local rotate_secret_out=""
-  local rotate_link=""
-
-  echo
-  t step_backup
-  create_backup "rotate-secret"
-
-  case "$mode" in
-    ee)
-      [[ -f "$EE_ENV_FILE" ]] || {
-        t err_not_installed_ee
-        return 1
-      }
-      # shellcheck disable=SC1090
-      source "$EE_ENV_FILE"
-      if [[ -z "$input_secret" ]]; then
-        read -rp "$(t ask_new_ee_secret_cli)" input_secret
-      fi
-      if [[ "${input_secret,,}" == "auto" ]]; then
-        input_secret=""
-      fi
-      if [[ -z "$input_secret" ]]; then
-        local use_front=""
-        use_front="${front_domain_arg:-${FRONT_DOMAIN:-}}"
-        if [[ -z "$use_front" ]]; then
-          ask_domain ask_front_domain use_front
-        fi
-        input_secret="$(docker run --rm "$MTG_IMAGE" generate-secret --hex "$use_front" | tr -d '\r\n')"
-        upsert_env_key "$EE_ENV_FILE" "FRONT_DOMAIN" "$use_front"
-      fi
-      if [[ ! "$input_secret" =~ ^[Ee][Ee][A-Fa-f0-9]{32,}$ ]]; then
-        t err_invalid_ee_secret
-        return 1
-      fi
-      EE_SECRET="${input_secret,,}"
-      mkdir -p /opt/mtg
-      chmod 700 /opt/mtg
-      umask 077
-      cat >/opt/mtg/config.toml <<EOF
-secret = "$EE_SECRET"
-bind-to = "0.0.0.0:3128"
-EOF
-      chmod 600 /opt/mtg/config.toml
-      upsert_env_key "$EE_ENV_FILE" "EE_SECRET" "$EE_SECRET"
-      write_ee_systemd_unit
-      systemd_reload
-      systemctl restart "$EE_SERVICE_NAME"
-      rotate_title="$(t summary_ee_link)"
-      rotate_secret_out="$EE_SECRET"
-      rotate_link="tg://proxy?server=${EE_DOMAIN}&port=${EE_PORT}&secret=${EE_SECRET}"
-      ;;
-    dd)
-      [[ -f "$DD_ENV_FILE" ]] || {
-        t err_not_installed_dd
-        return 1
-      }
-      if [[ -z "$input_secret" ]]; then
-        read -rp "$(t ask_new_dd_secret_cli)" input_secret
-      fi
-      if [[ -z "$input_secret" || "${input_secret,,}" == "auto" ]]; then
-        input_secret="$(openssl rand -hex 16)"
-      fi
-      if ! normalize_dd_secret "$input_secret"; then
-        t err_invalid_dd_secret
-        return 1
-      fi
-      upsert_env_key "$DD_ENV_FILE" "DD_BASE_SECRET" "$DD_BASE_SECRET"
-      upsert_env_key "$DD_ENV_FILE" "DD_SECRET" "$DD_SECRET"
-      # Re-write unit to keep server-side SECRET on DD_BASE_SECRET (32-hex).
-      # shellcheck disable=SC1090
-      source "$DD_ENV_FILE"
-      write_dd_systemd_unit
-      systemd_reload
-      systemctl restart "$DD_SERVICE_NAME"
-      rotate_title="$(t summary_dd_link)"
-      rotate_secret_out="$DD_SECRET"
-      rotate_link="tg://proxy?server=${DD_DOMAIN}&port=${DD_PORT}&secret=${DD_SECRET}"
-      ;;
-    *)
-      t err_rotate_mode_required
-      return 1
-      ;;
-  esac
-
-  echo
-  t note_rotate_done
-  t note_secret
-  if [[ -n "$rotate_title" ]]; then
-    echo "${rotate_title} $(t label_secret): ${rotate_secret_out}"
-    echo "${rotate_title} $(t label_import_link): ${rotate_link}"
-  fi
-  set_mode_flags "$mode" || return 1
-  cmd_healthcheck
+command_install() {
+  manager_install install
 }
 
-command_install() {
-  local SERVER_IPV4=""
-  local SERVER_IPV6=""
-  local ENABLE_BBR="Y"
-  local STRICT_UFW="N"
-  local EE_BIND_IP="0.0.0.0"
-  local EE_BIND_IPV6=""
-  local DD_BIND_IP="0.0.0.0"
-  local DD_BIND_IPV6=""
+# ---------- terminal UI ----------
+UI_NAVIGATION=0
+UI_WIDTH=72
+UI_HEIGHT=24
+UI_ACCENT=""
+UI_MUTED=""
+UI_RESET=""
+UI_SELECTED=""
+UI_OK=""
+UI_WARN=""
+UI_MARK=">"
+UI_DOT="*"
+UI_EE_STATUS=""
+UI_DD_STATUS=""
+UI_MAIN_OPTIONS=(
+  1:menu_install 2:menu_healthcheck 3:menu_self_heal 9:menu_region_diag
+  12:menu_config 13:menu_links 15:menu_status 16:menu_services
+  4:menu_upgrade 5:menu_self_update 6:menu_migrate 7:menu_rollback 8:menu_rotate_secret
+  14:menu_backups 17:menu_monitor 18:menu_language 10:menu_uninstall 11:menu_help 0:menu_exit
+)
 
-  if [[ "${SKIP_LANGUAGE_PROMPT:-0}" != "1" ]]; then
-    select_language
+ui_dimensions() {
+  local ui_cols="${COLUMNS:-80}"
+  local ui_lines="${LINES:-24}"
+  local ui_size=""
+  if [[ -t 0 ]] && command -v stty >/dev/null 2>&1; then
+    ui_size="$(stty size 2>/dev/null)" || ui_size=""
   fi
-  echo
-  echo "============================================================"
-  t title
-  echo "============================================================"
-  t need_dns
-  t note_no_cdn
-  echo
-
-  ask_deploy_mode
-
-  EE_DOMAIN=""
-  DD_DOMAIN=""
-  FRONT_DOMAIN=""
-  EE_PORT=""
-  DD_PORT=""
-  EE_SECRET=""
-  DD_BASE_SECRET=""
-  DD_SECRET=""
-
-  SERVER_IPV4="$(get_primary_ipv4)"
-  SERVER_IPV6="$(get_primary_ipv6)"
-
-  if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    ask_domain ask_ee_domain EE_DOMAIN
-    ask_front_domain_with_options
-    ask_port_with_options ask_ee_port EE_PORT "443" "8443" "9443"
-    ask_bind_ip_with_options EE_BIND_IP "$SERVER_IPV4"
-    ask_bind_ipv6_with_options EE_BIND_IPV6 "$SERVER_IPV6"
+  if [[ "$ui_size" =~ ^[0-9]+\ [0-9]+$ ]]; then
+    read -r ui_lines ui_cols <<<"$ui_size"
+  elif [[ -t 1 ]] && command -v tput >/dev/null 2>&1; then
+    ui_cols="$(tput cols 2>/dev/null)" || ui_cols=80
+    ui_lines="$(tput lines 2>/dev/null)" || ui_lines=24
   fi
+  [[ "$ui_cols" =~ ^[0-9]{1,4}$ ]] || ui_cols=80
+  [[ "$ui_lines" =~ ^[0-9]{1,4}$ ]] || ui_lines=24
+  UI_WIDTH=$((10#$ui_cols))
+  UI_HEIGHT=$((10#$ui_lines))
+  if ((UI_WIDTH > 72)); then UI_WIDTH=72; fi
+  if ((UI_WIDTH < 1)); then UI_WIDTH=1; fi
+}
 
-  if [[ "$DEPLOY_DD" -eq 1 ]]; then
-    ask_domain ask_dd_domain DD_DOMAIN
-    ask_port_with_options ask_dd_port DD_PORT "8443" "443" "9443"
-    ask_bind_ip_with_options DD_BIND_IP "$SERVER_IPV4"
-    ask_bind_ipv6_with_options DD_BIND_IPV6 "$SERVER_IPV6"
-  fi
-
-  if [[ "$DEPLOY_EE" -eq 1 && "$DEPLOY_DD" -eq 1 ]] && ports_conflict_for_bindings "$EE_PORT" "$EE_BIND_IP" "$EE_BIND_IPV6" "$DD_PORT" "$DD_BIND_IP" "$DD_BIND_IPV6"; then
-    t err_port_conflict
-    exit 1
-  fi
-
-  echo -n "$(t ask_enable_bbr)"
-  read -r ENABLE_BBR
-  ENABLE_BBR="${ENABLE_BBR:-Y}"
-
-  if [[ ("$DEPLOY_EE" -eq 1 && ( "$EE_BIND_IP" != "0.0.0.0" || -n "$EE_BIND_IPV6" )) || ("$DEPLOY_DD" -eq 1 && ( "$DD_BIND_IP" != "0.0.0.0" || -n "$DD_BIND_IPV6" )) ]]; then
-    echo -n "$(t ask_strict_ufw)"
-    read -r STRICT_UFW
-    STRICT_UFW="${STRICT_UFW:-N}"
-  fi
-
-  preflight_checks
-
-  echo
-  t step_update
-  apt-get update -y
-  apt-get install -y ca-certificates curl gnupg lsb-release ufw openssl jq dnsutils iproute2
-
-  echo
-  t step_dns_check
-  if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    check_domain_dns "$EE_DOMAIN" "$SERVER_IPV4" "$SERVER_IPV6" "1" "$([[ -n "$EE_BIND_IPV6" ]] && echo 1 || echo 0)"
-  fi
-  if [[ "$DEPLOY_DD" -eq 1 ]]; then
-    check_domain_dns "$DD_DOMAIN" "$SERVER_IPV4" "$SERVER_IPV6" "1" "$([[ -n "$DD_BIND_IPV6" ]] && echo 1 || echo 0)"
-  fi
-
-  echo
-  t step_docker
-  if ! command -v docker >/dev/null 2>&1; then
-    apt-get install -y docker.io
-  fi
-  systemctl enable --now docker
-
-  if [[ "$ENABLE_BBR" =~ ^[Yy]$ ]]; then
-    echo
-    t step_bbr_q
-    if sysctl net.ipv4.tcp_available_congestion_control 2>/dev/null | grep -qw bbr; then
-      cat >/etc/sysctl.d/99-bbr.conf <<'EOF'
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-EOF
-      if ! sysctl --system >/dev/null 2>&1; then
-        t warn_bbr_apply_fail
-      fi
-    else
-      t warn_bbr_unsupported
+ui_init() {
+  UI_NAVIGATION=0
+  UI_ACCENT="" UI_MUTED="" UI_RESET="" UI_SELECTED="" UI_OK="" UI_WARN=""
+  UI_MARK=">" UI_DOT="*"
+  case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    *[Uu][Tt][Ff]-8* | *[Uu][Tt][Ff]8*) UI_MARK="›" UI_DOT="●" ;;
+  esac
+  ui_dimensions
+  if [[ -t 0 && -t 1 && -n "${TERM:-}" && "${TERM}" != "dumb" ]]; then
+    if command -v tput >/dev/null 2>&1 && ! tput clear >/dev/null 2>&1; then
+      return 0
+    fi
+    # Small terminals keep a scrolling, numbered menu rather than a full-screen UI.
+    if ((UI_WIDTH >= 32 && UI_HEIGHT >= 14)); then UI_NAVIGATION=1; fi
+    local ui_colors=8
+    if command -v tput >/dev/null 2>&1; then
+      ui_colors="$(tput colors 2>/dev/null)" || ui_colors=0
+    fi
+    if [[ -z "${NO_COLOR+x}" && "$ui_colors" =~ ^[0-9]+$ ]] && ((ui_colors >= 8)); then
+      UI_ACCENT=$'\033[1;36m'
+      UI_MUTED=$'\033[2m'
+      UI_RESET=$'\033[0m'
+      UI_SELECTED=$'\033[1;37;44m'
+      UI_OK=$'\033[32m'
+      UI_WARN=$'\033[33m'
     fi
   fi
+}
 
-  echo
-  t step_firewall
-  ufw allow OpenSSH >/dev/null 2>&1 || true
-  while read -r ssh_port; do
-    [[ -n "$ssh_port" ]] || continue
-    ufw allow "${ssh_port}/tcp" >/dev/null
-  done < <(collect_sshd_ports)
-  if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    ufw_allow_proxy_port "$EE_PORT" "$EE_BIND_IP" "$STRICT_UFW"
-    ufw_allow_proxy_port "$EE_PORT" "$EE_BIND_IPV6" "$STRICT_UFW"
-  fi
-  if [[ "$DEPLOY_DD" -eq 1 ]]; then
-    ufw_allow_proxy_port "$DD_PORT" "$DD_BIND_IP" "$STRICT_UFW"
-    ufw_allow_proxy_port "$DD_PORT" "$DD_BIND_IPV6" "$STRICT_UFW"
-  fi
-  if ufw status | grep -qi inactive; then
-    ufw --force enable >/dev/null
-  fi
-  ufw reload >/dev/null
-
-  validate_image_refs
-  echo
-  t step_pull
-  if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    docker pull "$MTG_IMAGE" >/dev/null
-  fi
-  if [[ "$DEPLOY_DD" -eq 1 ]]; then
-    docker pull "$DD_IMAGE" >/dev/null
-  fi
-
-  if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    echo
-    printf '%s (%s)\n' "$(t step_front_test)" "${FRONT_DOMAIN}"
-    if timeout 6 openssl s_client -connect "${FRONT_DOMAIN}:443" -servername "${FRONT_DOMAIN}" </dev/null >/dev/null 2>&1; then
-      t tls_ok
+ui_mode_status() {
+  local ui_mode="$1" ui_env="" ui_service="" ui_port="" ui_state="" ui_color=""
+  case "$ui_mode" in
+    ee) ui_env="$EE_ENV_FILE" ui_service="$EE_SERVICE_NAME" ;;
+    dd) ui_env="$DD_ENV_FILE" ui_service="$DD_SERVICE_NAME" ;;
+  esac
+  ui_color="$UI_MUTED"
+  if [[ ! -r "$ui_env" ]]; then
+    if [[ -e "$ui_env" || -e "${SYSTEMD_UNIT_DIR}/${ui_service}" ]] \
+      || [[ -d "$CONFIG_DIR" && ! -x "$CONFIG_DIR" ]]; then
+      ui_state="$(t ui_unknown)"
     else
-      t tls_fail
-      if ! confirm_continue; then
-        t tls_abort
-        exit 1
-      fi
+      ui_state="$(t ui_unmanaged)"
+    fi
+  else
+    # Read only the port; never source configuration or display secrets in the header.
+    ui_port="$(awk -F= -v key="${ui_mode^^}_PORT" '$1 == key {print $2; exit}' "$ui_env")" || ui_port=""
+    ui_port="$(normalize_port "$ui_port")" || ui_port="?"
+    if ! command -v systemctl >/dev/null 2>&1; then
+      ui_state="$(t ui_unknown)"
+    elif systemctl is-active --quiet "$ui_service" 2>/dev/null; then
+      ui_state="$(t ui_running)"
+      ui_color="$UI_OK"
+    else
+      ui_state="$(t ui_stopped)"
+      ui_color="$UI_WARN"
     fi
   fi
+  printf '  %s  %s%s %s%s' "${ui_mode^^}" "$ui_color" "$UI_DOT" "$ui_state" "$UI_RESET"
+  if [[ -n "$ui_port" ]]; then printf '  :%s' "$ui_port"; fi
+}
 
-  ensure_config_dir
-  mkdir -p /opt/mtg
-  chmod 700 /opt/mtg
+ui_refresh_status() {
+  UI_EE_STATUS="$(ui_mode_status ee)"
+  UI_DD_STATUS="$(ui_mode_status dd)"
+}
 
-  if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    echo
-    t step_gen_ee
-    EE_SECRET="$(docker run --rm "$MTG_IMAGE" generate-secret --hex "$FRONT_DOMAIN" | tr -d '\r\n')"
-    # Docker host IP binding is controlled by -p ${EE_BIND_IP}:${EE_PORT}:3128 in systemd.
-    # mtg internal bind stays 0.0.0.0:3128 inside container.
-    umask 077
-    cat >/opt/mtg/config.toml <<EOF
-secret = "$EE_SECRET"
-bind-to = "0.0.0.0:3128"
-EOF
-    chmod 600 /opt/mtg/config.toml
-    write_ee_env_file
-    write_ee_systemd_unit
+ui_main_default() {
+  if [[ -f "$EE_ENV_FILE" || -f "$DD_ENV_FILE" ]] \
+    || [[ -f "${SYSTEMD_UNIT_DIR}/${EE_SERVICE_NAME}" || -f "${SYSTEMD_UNIT_DIR}/${DD_SERVICE_NAME}" ]]; then
+    echo 2
+  else
+    echo 1
   fi
+}
 
-  if [[ "$DEPLOY_DD" -eq 1 ]]; then
-    echo
-    t step_gen_dd
-    DD_BASE_SECRET="$(openssl rand -hex 16)"
-    DD_SECRET="dd${DD_BASE_SECRET}"
-    write_dd_env_file
-    write_dd_systemd_unit
-  fi
+ui_group_key() {
+  case "$1" in
+    1 | 2 | 3 | 9 | 12 | 13 | 15 | 16) echo ui_group_services ;;
+    4 | 5 | 6 | 7 | 8 | 14) echo ui_group_changes ;;
+    *) echo ui_group_more ;;
+  esac
+}
 
-  systemd_reload
-  if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    echo
-    printf '%s (port %s)\n' "$(t step_run_ee)" "${EE_PORT}"
-    systemctl enable --now "$EE_SERVICE_NAME"
+ui_render() {
+  local ui_title="$1" ui_kind="$2" ui_index="$3" ui_digits="$4" ui_error="$5"
+  shift 5
+  local -a ui_items=("$@")
+  local ui_start=0 ui_end="${#ui_items[@]}" ui_limit=0 ui_i=0
+  local ui_id="" ui_key="" ui_group="" ui_previous_group="" ui_marker="" ui_style="" ui_rule=""
+  ui_dimensions
+  if [[ "$UI_NAVIGATION" -eq 1 ]]; then
+    printf '\033[H\033[2J'
+    ui_limit=$((UI_HEIGHT - 10))
+    if ((ui_limit < 3)); then ui_limit=3; fi
+    if ((ui_index >= ui_limit)); then ui_start=$((ui_index - ui_limit + 1)); fi
+    if ((ui_end > ui_start + ui_limit)); then ui_end=$((ui_start + ui_limit)); fi
   fi
-  if [[ "$DEPLOY_DD" -eq 1 ]]; then
-    echo
-    printf '%s (port %s)\n' "$(t step_run_dd)" "${DD_PORT}"
-    systemctl enable --now "$DD_SERVICE_NAME"
-  fi
-
+  printf '%sTelegram Proxy%s  /  %s' "$UI_ACCENT" "$UI_RESET" "$(t "$ui_title")"
+  if [[ "$UI_NAVIGATION" -eq 1 ]]; then printf '  [%s/%s]' "$((ui_index + 1))" "${#ui_items[@]}"; fi
   echo
-  t step_summary
-  t note_secret
-  echo
-  echo "$(t summary_images)       :"
-  if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    echo "$(t summary_mtg)          : ${MTG_IMAGE}"
+  if [[ "$ui_kind" == main ]]; then
+    printf '%s\n%s\n' "$UI_EE_STATUS" "$UI_DD_STATUS"
+    if ((UI_HEIGHT >= 24 && UI_WIDTH >= 60)); then
+      printf '%s%s%s\n' "$UI_MUTED" "$(t ui_service_note)" "$UI_RESET"
+    fi
   fi
-  if [[ "$DEPLOY_DD" -eq 1 ]]; then
-    echo "$(t summary_dd)           : ${DD_IMAGE}"
+  printf -v ui_rule '%*s' "$UI_WIDTH" ""
+  ui_rule="${ui_rule// /-}"
+  printf '%s%s%s\n' "$UI_MUTED" "$ui_rule" "$UI_RESET"
+  for ((ui_i = ui_start; ui_i < ui_end; ui_i++)); do
+    ui_id="${ui_items[ui_i]%%:*}"
+    ui_key="${ui_items[ui_i]#*:}"
+    if [[ "$ui_kind" == main ]]; then
+      ui_group="$(ui_group_key "$ui_id")"
+      if [[ "$ui_group" != "$ui_previous_group" ]]; then
+        printf '%s%s%s\n' "$UI_MUTED" "$(t "$ui_group")" "$UI_RESET"
+        ui_previous_group="$ui_group"
+      fi
+    fi
+    ui_marker=" " ui_style=""
+    if [[ "$UI_NAVIGATION" -eq 1 && "$ui_i" -eq "$ui_index" ]]; then
+      ui_marker="$UI_MARK" ui_style="$UI_SELECTED"
+    fi
+    printf '%s %s %2s  %s %s\n' "$ui_style" "$ui_marker" "$ui_id" "$(t "$ui_key")" "$UI_RESET"
+  done
+  if [[ "$UI_NAVIGATION" -eq 1 ]]; then
+    printf '%s%s%s\n' "$UI_MUTED" "$(t ui_keys)" "$UI_RESET"
+    if [[ -n "$ui_error" ]]; then
+      printf '%s%s%s\n' "$UI_WARN" "$ui_error" "$UI_RESET"
+    elif [[ -n "$ui_digits" ]]; then
+      printf '%s: %s\n' "$(t ui_prompt)" "$ui_digits"
+    else
+      printf '%s%s%s\n' "$UI_MUTED" "$(t ui_shortcuts)" "$UI_RESET"
+    fi
   fi
-  echo
+}
 
-  if [[ "$DEPLOY_EE" -eq 1 ]]; then
-    echo "$(t summary_ee_link): tg://proxy?server=${EE_DOMAIN}&port=${EE_PORT}&secret=${EE_SECRET}"
-    echo
+ui_option_index() {
+  local ui_wanted="$1" ui_item="" ui_position=0
+  shift
+  for ui_item in "$@"; do
+    if [[ "${ui_item%%:*}" == "$ui_wanted" ]]; then
+      printf '%s' "$ui_position"
+      return 0
+    fi
+    ui_position=$((ui_position + 1))
+  done
+  return 1
+}
+
+ui_select() {
+  local ui_destination="$1" ui_title="$2" ui_kind="$3" ui_default="$4"
+  shift 4
+  local -a ui_items=("$@")
+  local ui_index=0 ui_match=0 ui_input="" ui_key="" ui_next="" ui_arrow="" ui_digits="" ui_error=""
+  ui_init
+  ui_index="$(ui_option_index "$ui_default" "${ui_items[@]}")" || return 1
+  if [[ "$ui_kind" == main ]]; then ui_refresh_status; fi
+  ui_render "$ui_title" "$ui_kind" "$ui_index" "" "" "${ui_items[@]}"
+
+  if [[ "$UI_NAVIGATION" -eq 0 ]]; then
+    while read -r -p "$(t ui_prompt) [${ui_default}]: " ui_input; do
+      ui_input="${ui_input// /}"
+      case "$ui_input" in
+        q | Q) ui_input=0 ;;
+        r | R)
+          if [[ "$ui_kind" == main ]]; then ui_refresh_status; fi
+          ui_render "$ui_title" "$ui_kind" "$ui_index" "" "" "${ui_items[@]}"
+          continue
+          ;;
+        "") ui_input="$ui_default" ;;
+      esac
+      if ui_option_index "$ui_input" "${ui_items[@]}" >/dev/null; then
+        printf -v "$ui_destination" '%s' "$ui_input"
+        return 0
+      fi
+      t err_choice_invalid
+    done
+    return 1
   fi
-  if [[ "$DEPLOY_DD" -eq 1 ]]; then
-    echo "$(t summary_dd_link): tg://proxy?server=${DD_DOMAIN}&port=${DD_PORT}&secret=${DD_SECRET}"
-    echo
+
+  # Bash read handles each key without leaving the terminal in raw mode.
+  while IFS= read -r -s -n 1 ui_key; do
+    ui_error=""
+    case "$ui_key" in
+      $'\033')
+        ui_next="" ui_arrow=""
+        if ! IFS= read -r -s -n 1 -t 0.15 ui_next; then
+          printf -v "$ui_destination" '%s' 0
+          echo
+          return 0
+        fi
+        if [[ "$ui_next" == "[" || "$ui_next" == "O" ]]; then
+          IFS= read -r -s -n 1 -t 0.15 ui_arrow || true
+          case "$ui_arrow" in
+            A) ui_index=$(((ui_index + ${#ui_items[@]} - 1) % ${#ui_items[@]})) ;;
+            B) ui_index=$(((ui_index + 1) % ${#ui_items[@]})) ;;
+            H) ui_index=0 ;;
+            F) ui_index=$((${#ui_items[@]} - 1)) ;;
+            *) continue ;;
+          esac
+          ui_digits=""
+        else
+          continue
+        fi
+        ;;
+      "" | $'\r')
+        ui_input="${ui_items[ui_index]%%:*}"
+        if [[ -n "$ui_digits" ]]; then ui_input="$ui_digits"; fi
+        if ui_option_index "$ui_input" "${ui_items[@]}" >/dev/null; then
+          printf -v "$ui_destination" '%s' "$ui_input"
+          echo
+          return 0
+        fi
+        ui_digits=""
+        ui_error="$(t err_choice_invalid)"
+        ;;
+      [0-9])
+        if ((${#ui_digits} >= 2)); then ui_digits=""; fi
+        ui_digits+="$ui_key"
+        if ui_match="$(ui_option_index "$ui_digits" "${ui_items[@]}")"; then ui_index="$ui_match"; fi
+        ;;
+      $'\177' | $'\b')
+        ui_digits="${ui_digits%?}"
+        if [[ -n "$ui_digits" ]] && ui_match="$(ui_option_index "$ui_digits" "${ui_items[@]}")"; then
+          ui_index="$ui_match"
+        fi
+        ;;
+      q | Q)
+        printf -v "$ui_destination" '%s' 0
+        echo
+        return 0
+        ;;
+      $'\004')
+        echo
+        return 1
+        ;;
+      r | R)
+        ui_digits=""
+        if [[ "$ui_kind" == main ]]; then ui_refresh_status; fi
+        ;;
+      *) continue ;;
+    esac
+    ui_render "$ui_title" "$ui_kind" "$ui_index" "$ui_digits" "$ui_error" "${ui_items[@]}"
+  done
+  echo
+  return 1
+}
+
+cmd_preview() {
+  local ui_preview_index=0
+  if (($#)); then
+    if [[ "$#" -ne 2 || "$1" != "--lang" ]]; then
+      usage
+      return 1
+    fi
+    case "$2" in
+      en | zh | ko | ja) UI_LANG="$2" ;;
+      *)
+        t err_choice_invalid
+        return 1
+        ;;
+    esac
   fi
-  cmd_healthcheck || true
+  ui_init
+  ui_refresh_status
+  ui_preview_index="$(ui_option_index "$(ui_main_default)" "${UI_MAIN_OPTIONS[@]}")"
+  ui_render menu_title main "$ui_preview_index" "" "" "${UI_MAIN_OPTIONS[@]}"
 }
 
 prompt_mode_all() {
   local mode_choice=""
-  while true; do
-    t ask_oper_mode >&2
-    echo "1) ee" >&2
-    echo "2) dd" >&2
-    echo "3) all" >&2
-    read -rp "> " mode_choice
-    mode_choice="${mode_choice// /}"
-    case "$mode_choice" in
-      1)
-        echo "ee"
-        return 0
-        ;;
-      2)
-        echo "dd"
-        return 0
-        ;;
-      3)
-        echo "all"
-        return 0
-        ;;
-      *)
-        t err_choice_invalid >&2
-        ;;
-    esac
-  done
+  ui_select mode_choice ask_oper_mode mode 3 \
+    1:mode_ee_only 2:mode_dd_only 3:mode_both 0:ui_back >&2 || return 1
+  case "$mode_choice" in
+    1) echo ee ;;
+    2) echo dd ;;
+    3) echo all ;;
+    0) echo back ;;
+  esac
 }
 
 prompt_mode_rotate() {
   local mode_choice=""
-  while true; do
-    t ask_rotate_mode >&2
-    echo "1) ee" >&2
-    echo "2) dd" >&2
-    read -rp "> " mode_choice
-    mode_choice="${mode_choice// /}"
-    case "$mode_choice" in
-      1)
-        echo "ee"
-        return 0
-        ;;
-      2)
-        echo "dd"
-        return 0
-        ;;
-      *)
-        t err_choice_invalid >&2
-        ;;
-    esac
-  done
+  ui_select mode_choice ask_rotate_mode mode 1 \
+    1:mode_ee_only 2:mode_dd_only 0:ui_back >&2 || return 1
+  case "$mode_choice" in
+    1) echo ee ;;
+    2) echo dd ;;
+    0) echo back ;;
+  esac
 }
 
 pause_menu() {
   local _
   echo
-  read -r -p "$(t menu_press_enter)" _
+  read -r -p "$(t menu_press_enter)" _ || return 0
   echo
 }
 
 interactive_menu() {
-  local choice=""
-  local mode=""
-  local mtg_image_arg=""
-  local dd_image_arg=""
-  local backup_id=""
-  local rotate_mode=""
-  local rotate_secret=""
-  local rotate_front=""
-
-  select_language
-
-  while true; do
-    echo
-    echo "================ $(t menu_title) ================"
-    echo "1) $(t menu_install)"
-    echo "2) $(t menu_healthcheck)"
-    echo "3) $(t menu_self_heal)"
-    echo "4) $(t menu_upgrade)"
-    echo "5) $(t menu_self_update)"
-    echo "6) $(t menu_migrate)"
-    echo "7) $(t menu_rollback)"
-    echo "8) $(t menu_rotate_secret)"
-    echo "9) $(t menu_region_diag)"
-    echo "10) $(t menu_uninstall)"
-    echo "11) $(t menu_help)"
-    echo "0) $(t menu_exit)"
-    read -rp "> " choice
-    choice="${choice// /}"
-
-    case "$choice" in
-      1)
-        SKIP_LANGUAGE_PROMPT=1 command_install
-        pause_menu
-        ;;
-      2)
-        mode="$(prompt_mode_all)"
-        set_mode_flags "$mode" || continue
-        cmd_healthcheck || true
-        pause_menu
-        ;;
-      3)
-        mode="$(prompt_mode_all)"
-        set_mode_flags "$mode" || continue
-        cmd_self_heal || true
-        pause_menu
-        ;;
-      4)
-        mode="$(prompt_mode_all)"
-        set_mode_flags "$mode" || continue
-        t note_upgrade_scope
-        mtg_image_arg=""
-        dd_image_arg=""
-        if [[ "$DEPLOY_EE" -eq 1 ]]; then
-          read -rp "$(t ask_new_mtg_image)" mtg_image_arg
-        fi
-        if [[ "$DEPLOY_DD" -eq 1 ]]; then
-          read -rp "$(t ask_new_dd_image)" dd_image_arg
-        fi
-        if cmd_upgrade "$mtg_image_arg" "$dd_image_arg"; then
-          cmd_healthcheck || true
-        fi
-        pause_menu
-        ;;
-      5)
-        cmd_self_update
-        pause_menu
-        ;;
-      6)
-        mode="$(prompt_mode_all)"
-        set_mode_flags "$mode" || continue
-        cmd_migrate "" "" ""
-        pause_menu
-        ;;
-      7)
-        mode="$(prompt_mode_all)"
-        set_mode_flags "$mode" || continue
-        read -rp "$(t ask_backup_id)" backup_id
-        cmd_rollback "$backup_id"
-        pause_menu
-        ;;
-      8)
-        rotate_mode="$(prompt_mode_rotate)"
-        if [[ "$rotate_mode" == "ee" ]]; then
-          read -rp "$(t ask_new_secret_ee)" rotate_secret
-        else
-          read -rp "$(t ask_new_secret_dd)" rotate_secret
-        fi
-        rotate_secret="${rotate_secret//[[:space:]]/}"
-        if [[ -z "$rotate_secret" ]]; then
-          rotate_secret="auto"
-        fi
-        rotate_front=""
-        if [[ "$rotate_mode" == "ee" ]]; then
-          read -rp "$(t ask_front_for_auto_secret)" rotate_front
-        fi
-        cmd_rotate_secret "$rotate_mode" "$rotate_secret" "$rotate_front" || true
-        pause_menu
-        ;;
-      9)
-        mode="$(prompt_mode_all)"
-        set_mode_flags "$mode" || continue
-        cmd_regional_diagnose || true
-        pause_menu
-        ;;
-      10)
-        mode="$(prompt_mode_all)"
-        set_mode_flags "$mode" || continue
-        if confirm_continue; then
-          cmd_uninstall
-        fi
-        pause_menu
-        ;;
-      11)
-        usage
-        pause_menu
-        ;;
-      0)
-        return 0
-        ;;
-      *)
-        t err_choice_invalid
-        ;;
-    esac
-  done
+  manager_menu
 }
 
 main() {
-  local cmd="${1:-install}"
-  local mode="all"
-  local mtg_image_arg=""
-  local dd_image_arg=""
-  local ee_domain_arg=""
-  local dd_domain_arg=""
-  local front_domain_arg=""
-  local backup_id=""
-  local rotate_mode=""
-  local rotate_secret=""
-  local rotate_front=""
-
-  if [[ "$cmd" != "-h" && "$cmd" != "--help" && "$cmd" != "help" ]]; then
-    acquire_run_lock
-  fi
-
-  if [[ "$#" -eq 0 ]]; then
-    interactive_menu
-    return 0
-  fi
-
-  case "$cmd" in
-    install)
-      command_install
-      ;;
-    migrate)
-      shift || true
-      while (($#)); do
-        case "$1" in
-          --mode)
-            mode="${2:-all}"
-            shift 2
-            ;;
-          --ee-domain)
-            ee_domain_arg="${2:-}"
-            shift 2
-            ;;
-          --dd-domain)
-            dd_domain_arg="${2:-}"
-            shift 2
-            ;;
-          --front-domain)
-            front_domain_arg="${2:-}"
-            shift 2
-            ;;
-          *)
-            printf '%s %s\n' "$(t err_unknown_arg)" "$1"
-            usage
-            exit 1
-            ;;
-        esac
-      done
-      set_mode_flags "$mode" || exit 1
-      cmd_migrate "$ee_domain_arg" "$dd_domain_arg" "$front_domain_arg"
-      ;;
-    rollback)
-      shift || true
-      while (($#)); do
-        case "$1" in
-          --mode)
-            mode="${2:-all}"
-            shift 2
-            ;;
-          --backup-id)
-            backup_id="${2:-}"
-            shift 2
-            ;;
-          *)
-            printf '%s %s\n' "$(t err_unknown_arg)" "$1"
-            usage
-            exit 1
-            ;;
-        esac
-      done
-      set_mode_flags "$mode" || exit 1
-      cmd_rollback "$backup_id"
-      ;;
-    self-update | self_update)
-      shift || true
-      if (($#)); then
-        printf '%s %s\n' "$(t err_unknown_arg)" "$1"
-        usage
-        exit 1
-      fi
-      cmd_self_update
-      ;;
-    uninstall)
-      shift || true
-      while (($#)); do
-        case "$1" in
-          --mode)
-            mode="${2:-all}"
-            shift 2
-            ;;
-          *)
-            printf '%s %s\n' "$(t err_unknown_arg)" "$1"
-            usage
-            exit 1
-            ;;
-        esac
-      done
-      set_mode_flags "$mode" || exit 1
-      cmd_uninstall
-      ;;
-    upgrade)
-      shift || true
-      while (($#)); do
-        case "$1" in
-          --mode)
-            mode="${2:-all}"
-            shift 2
-            ;;
-          --mtg-image)
-            mtg_image_arg="${2:-}"
-            shift 2
-            ;;
-          --dd-image)
-            dd_image_arg="${2:-}"
-            shift 2
-            ;;
-          *)
-            printf '%s %s\n' "$(t err_unknown_arg)" "$1"
-            usage
-            exit 1
-            ;;
-        esac
-      done
-      set_mode_flags "$mode" || exit 1
-      cmd_upgrade "$mtg_image_arg" "$dd_image_arg"
-      cmd_healthcheck
-      ;;
-    healthcheck)
-      shift || true
-      while (($#)); do
-        case "$1" in
-          --mode)
-            mode="${2:-all}"
-            shift 2
-            ;;
-          *)
-            printf '%s %s\n' "$(t err_unknown_arg)" "$1"
-            usage
-            exit 1
-            ;;
-        esac
-      done
-      set_mode_flags "$mode" || exit 1
-      cmd_healthcheck
-      ;;
-    regional-diagnose | regional_diagnose)
-      shift || true
-      while (($#)); do
-        case "$1" in
-          --mode)
-            mode="${2:-all}"
-            shift 2
-            ;;
-          *)
-            printf '%s %s\n' "$(t err_unknown_arg)" "$1"
-            usage
-            exit 1
-            ;;
-        esac
-      done
-      set_mode_flags "$mode" || exit 1
-      cmd_regional_diagnose
-      ;;
-    self-heal | self_heal)
-      shift || true
-      while (($#)); do
-        case "$1" in
-          --mode)
-            mode="${2:-all}"
-            shift 2
-            ;;
-          *)
-            printf '%s %s\n' "$(t err_unknown_arg)" "$1"
-            usage
-            exit 1
-            ;;
-        esac
-      done
-      set_mode_flags "$mode" || exit 1
-      cmd_self_heal
-      ;;
-    rotate-secret | rotate_secret)
-      shift || true
-      while (($#)); do
-        case "$1" in
-          --mode)
-            rotate_mode="${2:-}"
-            shift 2
-            ;;
-          --secret)
-            rotate_secret="${2:-}"
-            shift 2
-            ;;
-          --front-domain)
-            rotate_front="${2:-}"
-            shift 2
-            ;;
-          *)
-            printf '%s %s\n' "$(t err_unknown_arg)" "$1"
-            usage
-            exit 1
-            ;;
-        esac
-      done
-      if [[ -z "$rotate_mode" ]]; then
-        t err_rotate_mode_required
-        exit 1
-      fi
-      cmd_rotate_secret "$rotate_mode" "$rotate_secret" "$rotate_front"
-      ;;
-    -h | --help | help)
-      usage
-      ;;
-    *)
-      printf '%s %s\n' "$(t err_unknown_cmd)" "$cmd"
-      usage
-      exit 1
-      ;;
-  esac
+  manager_main "$@"
 }
 
-main "$@"
+INSTALLER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/messages.sh
+source "$INSTALLER_DIR/lib/messages.sh"
+# shellcheck source=lib/management.sh
+source "$INSTALLER_DIR/lib/management.sh"
+# shellcheck source=lib/installer.sh
+source "$INSTALLER_DIR/lib/installer.sh"
+# shellcheck source=lib/operations.sh
+source "$INSTALLER_DIR/lib/operations.sh"
+# shellcheck source=lib/migration.sh
+source "$INSTALLER_DIR/lib/migration.sh"
+# shellcheck source=lib/cli.sh
+source "$INSTALLER_DIR/lib/cli.sh"
+# shellcheck source=lib/menu.sh
+source "$INSTALLER_DIR/lib/menu.sh"
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
