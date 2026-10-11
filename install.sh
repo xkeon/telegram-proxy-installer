@@ -126,7 +126,6 @@ t() {
         ui_keys) echo "Up/Down | Enter | number + Enter" ;;
         ui_shortcuts) echo "r refresh | q/Esc back/exit" ;;
         ui_service_note) echo "Service state; use healthcheck for full diagnosis" ;;
-        usage_preview) echo "preview: show the terminal UI without root or changes." ;;
         menu_install) echo "Install proxy" ;;
         menu_healthcheck) echo "Healthcheck" ;;
         menu_self_heal) echo "Repair services" ;;
@@ -345,7 +344,6 @@ t() {
         ui_keys) echo "↑/↓ 选择 · 回车确认 · 编号+回车" ;;
         ui_shortcuts) echo "r 刷新 · q / Esc 返回或退出" ;;
         ui_service_note) echo "此处显示服务状态；完整诊断请用健康检查" ;;
-        usage_preview) echo "preview：无需 root，只预览终端界面。" ;;
         menu_install) echo "安装" ;;
         menu_healthcheck) echo "健康检查" ;;
         menu_self_heal) echo "自愈" ;;
@@ -564,7 +562,6 @@ t() {
         ui_keys) echo "↑/↓ 선택 · Enter 확인 · 번호 + Enter" ;;
         ui_shortcuts) echo "r 새로 고침 · q / Esc 뒤로 또는 종료" ;;
         ui_service_note) echo "서비스 상태입니다. 전체 진단은 상태 점검을 사용하세요" ;;
-        usage_preview) echo "preview: root 권한이나 변경 없이 터미널 UI를 미리 봅니다." ;;
         menu_install) echo "설치" ;;
         menu_healthcheck) echo "상태 점검" ;;
         menu_self_heal) echo "자동 복구" ;;
@@ -783,7 +780,6 @@ t() {
         ui_keys) echo "↑/↓ 選択 · Enter 確定 · 番号 + Enter" ;;
         ui_shortcuts) echo "r 更新 · q / Esc 戻る、または終了" ;;
         ui_service_note) echo "サービスの状態です。詳細はヘルスチェックを使用してください" ;;
-        usage_preview) echo "preview: root 権限や変更なしで端末 UI を表示します。" ;;
         menu_install) echo "インストール" ;;
         menu_healthcheck) echo "ヘルスチェック" ;;
         menu_self_heal) echo "自動復旧" ;;
@@ -1325,7 +1321,6 @@ usage() {
   cat <<EOF
 $(t usage_title)
   install.sh [install]
-  install.sh preview [--lang en|zh|ko|ja]
   install.sh migrate [--mode ee|dd|all] [--ee-domain DOMAIN] [--dd-domain DOMAIN] [--front-domain DOMAIN]
   install.sh rollback [--mode ee|dd|all] [--backup-id ID]
   install.sh self-update
@@ -1338,7 +1333,6 @@ $(t usage_title)
 
 $(t usage_notes)
   - $(t usage_no_args)
-  - $(t usage_preview)
   - $(t usage_migrate)
   - $(t usage_rollback)
   - $(t usage_self_update)
@@ -2911,27 +2905,6 @@ ui_select() {
   done
   echo
   return 1
-}
-
-cmd_preview() {
-  local ui_preview_index=0
-  if (($#)); then
-    if [[ "$#" -ne 2 || "$1" != "--lang" ]]; then
-      usage
-      return 1
-    fi
-    case "$2" in
-      en | zh | ko | ja) UI_LANG="$2" ;;
-      *)
-        t err_choice_invalid
-        return 1
-        ;;
-    esac
-  fi
-  ui_init
-  ui_refresh_status
-  ui_preview_index="$(ui_option_index "$(ui_main_default)" "${UI_MAIN_OPTIONS[@]}")"
-  ui_render menu_title main "$ui_preview_index" "" "" "${UI_MAIN_OPTIONS[@]}"
 }
 
 prompt_mode_all() {

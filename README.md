@@ -23,11 +23,6 @@ One-click interactive installer for Telegram MTProto proxy on Ubuntu 26.04 LTS.
 ### Terminal UI
 The menu groups services, updates, and recovery, and shows EE/DD service states and ports. In a supported terminal, use Up/Down and Enter, or type a number and press Enter; `r` refreshes status and `q` / Esc goes back or exits. Mode selectors include a Back option. With an existing deployment, the menu initially selects Healthcheck.
 
-Preview the interface without root or changing the server:
-```bash
-bash install.sh preview --lang en
-```
-
 Piped input, `TERM=dumb`, and very small terminals use a numbered text menu. Set `NO_COLOR` to disable colors while keeping navigation, for example `sudo env NO_COLOR=1 bash install.sh`. The header shows systemd service state; run Healthcheck for container and port diagnosis.
 
 ### Management and automation
@@ -54,7 +49,7 @@ sudo bash install.sh regional-diagnose --mode all --public-ipv4 203.0.113.5 --re
 sudo bash install.sh language --lang en
 ```
 
-Replace example domains/IPs with your VPS settings. Config files contain literal, unquoted `KEY=value` entries, are never executed, and explicit flags override the file. Use `--secret-file` with a file of mode 600 or 400 when rotating secrets. Mutating commands support `--dry-run`; previews do not install packages, create locks or modify services. Applying changes requires root; reading installed private configuration also normally needs sudo. `status` and `healthcheck` accept `--json`. Health exit codes: 0 healthy, 1 unhealthy, 2 absent/unmanaged; `--mode all` skips absent modes when another mode is healthy.
+Replace example domains/IPs with your VPS settings. Config files contain literal, unquoted `KEY=value` entries, are never executed, and explicit flags override the file. Use `--secret-file` with a file of mode 600 or 400 when rotating secrets. Mutating commands support `--dry-run` to inspect the requested changes without installing packages, creating locks or modifying services. Applying changes requires root; reading installed private configuration also normally needs sudo. `status` and `healthcheck` accept `--json`. Health exit codes: 0 healthy, 1 unhealthy, 2 absent/unmanaged; `--mode all` skips absent modes when another mode is healthy.
 
 Installation, settings, rotation, migration, upgrades and uninstall save snapshots before changing proxy files. Failures attempt recovery and return nonzero even when recovery succeeds. Snapshots record stopped/paused state; incomplete backups are excluded from history and retention. The history shows timestamp, action, scope, ports and digests. Retention applies to complete new snapshots; old-format and partial directories remain for manual inspection. Uninstall keeps backups, packages and existing firewall rules. Self-update refuses a dirty Git checkout. Migration preserves the detected secrets and leaves original containers stopped under the displayed names; remove those after testing clients.
 
@@ -68,8 +63,22 @@ NAT/public IP checks are separate from local bindings; set `PUBLIC_IPV4/PUBLIC_I
 - Domain A records point to your VPS (`DNS only`, no CDN proxy)
 
 ### Quick Start
+
+Copy the entire block into your VPS terminal. It installs Git first, downloads or updates the project, then opens the working management menu using its full path. A download or update failure stops execution.
+
 ```bash
-git -C ~/telegram-proxy-installer pull || git clone https://github.com/xkeon/telegram-proxy-installer.git ~/telegram-proxy-installer; sudo bash ~/telegram-proxy-installer/install.sh
+(
+  set -e
+  sudo apt-get update
+  sudo apt-get install -y git ca-certificates
+  proxy_repo="$HOME/telegram-proxy-installer"
+  if [ -d "$proxy_repo/.git" ]; then
+    git -C "$proxy_repo" pull --ff-only
+  else
+    git clone https://github.com/xkeon/telegram-proxy-installer.git "$proxy_repo"
+  fi
+  sudo bash "$proxy_repo/install.sh" --lang en
+)
 ```
 
 ### Connect to Your VPS by IP
@@ -169,11 +178,6 @@ docker image inspect telegrammessenger/proxy:latest --format '{{index .RepoDiges
 ### 终端界面
 菜单按服务、更新和恢复分组，并显示 EE/DD 服务状态与端口。在支持的终端中，用方向键和回车选择，或输入编号后回车；`r` 刷新状态，`q` / Esc 返回或退出。操作模式选择支持返回。已有部署时，首页默认选中健康检查。
 
-无需 root，也不修改服务器，就可以预览界面：
-```bash
-bash install.sh preview --lang zh
-```
-
 通过管道输入、使用 `TERM=dumb` 或窗口过小时，自动使用编号文本菜单。设置 `NO_COLOR` 可关闭颜色并保留导航，例如 `sudo env NO_COLOR=1 bash install.sh`。首页显示 systemd 服务状态；容器和端口诊断请使用健康检查。
 
 ### 管理与自动化
@@ -200,7 +204,7 @@ sudo bash install.sh regional-diagnose --mode all --public-ipv4 203.0.113.5 --re
 sudo bash install.sh language --lang zh
 ```
 
-请将示例域名、IP 替换为 VPS 的实际配置。配置文件采用不带引号的 `KEY=value`，只读取数据，不执行文件；命令行参数优先。轮换密钥可用 `--secret-file` 读取权限为 600 或 400 的文件。变更命令支持 `--dry-run`：预览不安装软件、不创建锁、不修改服务。实际变更需要 root，读取已有的私密配置通常也需要 sudo。`status`、`healthcheck` 支持 `--json`；健康检查退出码为 0 正常、1 异常、2 未安装或未托管，`--mode all` 在已有健康模式时跳过缺失模式。
+请将示例域名、IP 替换为 VPS 的实际配置。配置文件采用不带引号的 `KEY=value`，只读取数据，不执行文件；命令行参数优先。轮换密钥可用 `--secret-file` 读取权限为 600 或 400 的文件。变更命令支持 `--dry-run`，用于核对即将执行的配置变更，不安装软件、不创建锁、不修改服务。实际变更需要 root，读取已有的私密配置通常也需要 sudo。`status`、`healthcheck` 支持 `--json`；健康检查退出码为 0 正常、1 异常、2 未安装或未托管，`--mode all` 在已有健康模式时跳过缺失模式。
 
 安装、配置、轮换、迁移、升级与卸载都会在修改代理文件前保存快照；失败时尝试恢复，恢复成功也保留失败退出码。备份记录停止/暂停状态，不完整备份不进入历史与保留数量计算。历史列出时间、操作、模式、端口和镜像摘要；自动清理只处理完整的新格式快照，旧格式与不完整目录留给人工检查。卸载保留备份、软件包与已有防火墙规则。自更新会拒绝覆盖有本地变更的 Git 仓库。迁移保留检测到的密钥，并保留以提示名称命名、已停止的旧容器，客户端验证后可自行清理。
 
@@ -214,8 +218,22 @@ NAT 公网地址与本机绑定分别检查，可填写 `PUBLIC_IPV4/PUBLIC_IPV6
 - 域名 A 记录已解析到 VPS（`DNS only`，不要 CDN 代理）
 
 ### 快速开始
+
+完整复制以下命令到 VPS 终端。先安装 Git，再下载或更新项目，最后通过完整路径打开实际的管理菜单；下载或更新失败时会立即停止。
+
 ```bash
-git -C ~/telegram-proxy-installer pull || git clone https://github.com/xkeon/telegram-proxy-installer.git ~/telegram-proxy-installer; sudo bash ~/telegram-proxy-installer/install.sh
+(
+  set -e
+  sudo apt-get update
+  sudo apt-get install -y git ca-certificates
+  proxy_repo="$HOME/telegram-proxy-installer"
+  if [ -d "$proxy_repo/.git" ]; then
+    git -C "$proxy_repo" pull --ff-only
+  else
+    git clone https://github.com/xkeon/telegram-proxy-installer.git "$proxy_repo"
+  fi
+  sudo bash "$proxy_repo/install.sh" --lang zh
+)
 ```
 
 ### 通过 IP 地址连接 VPS
@@ -315,11 +333,6 @@ docker image inspect telegrammessenger/proxy:latest --format '{{index .RepoDiges
 ### 터미널 UI
 메뉴는 서비스, 업데이트, 복구 작업을 그룹으로 표시하고 EE/DD 서비스 상태와 포트를 보여 줍니다. 지원되는 터미널에서는 방향키와 Enter 또는 번호와 Enter를 사용합니다. `r`은 상태 새로 고침, `q` / Esc는 뒤로 또는 종료입니다. 모드 선택에서 뒤로 돌아갈 수 있으며, 기존 배포가 있으면 상태 점검이 기본 선택됩니다.
 
-root 권한이나 서버 변경 없이 미리 보기:
-```bash
-bash install.sh preview --lang ko
-```
-
 파이프 입력, `TERM=dumb`, 아주 작은 창에서는 번호 메뉴를 사용합니다. `sudo env NO_COLOR=1 bash install.sh`로 색상을 끄고 탐색은 유지할 수 있습니다. 헤더는 systemd 서비스 상태이며, 컨테이너와 포트 진단은 상태 점검을 사용하세요.
 
 ### 관리 및 자동화
@@ -351,8 +364,22 @@ NAT 공개 IP와 로컬 바인딩을 분리하고 IPv6 DNS를 정규화합니다
 - 도메인 A 레코드가 VPS를 가리켜야 함 (`DNS only`, CDN 프록시 금지)
 
 ### 빠른 시작
+
+VPS 터미널에 전체 블록을 복사하세요. Git 설치 후 프로젝트를 다운로드하거나 업데이트하고 전체 경로로 관리 메뉴를 엽니다. 다운로드/업데이트 실패 시 중단합니다.
+
 ```bash
-git -C ~/telegram-proxy-installer pull || git clone https://github.com/xkeon/telegram-proxy-installer.git ~/telegram-proxy-installer; sudo bash ~/telegram-proxy-installer/install.sh
+(
+  set -e
+  sudo apt-get update
+  sudo apt-get install -y git ca-certificates
+  proxy_repo="$HOME/telegram-proxy-installer"
+  if [ -d "$proxy_repo/.git" ]; then
+    git -C "$proxy_repo" pull --ff-only
+  else
+    git clone https://github.com/xkeon/telegram-proxy-installer.git "$proxy_repo"
+  fi
+  sudo bash "$proxy_repo/install.sh" --lang ko
+)
 ```
 
 ### IP 주소로 VPS 접속하기
@@ -452,11 +479,6 @@ docker image inspect telegrammessenger/proxy:latest --format '{{index .RepoDiges
 ### ターミナル UI
 メニューはサービス、更新、復元に分類され、EE/DD のサービス状態とポートを表示します。対応端末では方向キーと Enter、または番号と Enter で選択します。`r` で状態を更新し、`q` / Esc で戻るか終了します。モード選択から戻ることができ、既存の構成がある場合はヘルスチェックが初期選択になります。
 
-root 権限やサーバーの変更なしでプレビューできます：
-```bash
-bash install.sh preview --lang ja
-```
-
 パイプ入力、`TERM=dumb`、非常に小さいウィンドウでは番号メニューになります。`sudo env NO_COLOR=1 bash install.sh` で色を無効にして操作を続けられます。ヘッダーは systemd サービスの状態です。コンテナとポートの診断にはヘルスチェックを使用してください。
 
 ### 管理と自動化
@@ -488,8 +510,22 @@ NAT の公開 IP とローカルバインドを区別し、IPv6 DNS を正規化
 - ドメインAレコードがVPSを向いていること（`DNS only`、CDNプロキシ禁止）
 
 ### クイックスタート
+
+VPS の端末にブロック全体をコピーしてください。Git をインストールし、取得または更新後にフルパスで管理メニューを開きます。取得や更新に失敗した場合は停止します。
+
 ```bash
-git -C ~/telegram-proxy-installer pull || git clone https://github.com/xkeon/telegram-proxy-installer.git ~/telegram-proxy-installer; sudo bash ~/telegram-proxy-installer/install.sh
+(
+  set -e
+  sudo apt-get update
+  sudo apt-get install -y git ca-certificates
+  proxy_repo="$HOME/telegram-proxy-installer"
+  if [ -d "$proxy_repo/.git" ]; then
+    git -C "$proxy_repo" pull --ff-only
+  else
+    git clone https://github.com/xkeon/telegram-proxy-installer.git "$proxy_repo"
+  fi
+  sudo bash "$proxy_repo/install.sh" --lang ja
+)
 ```
 
 ### IPアドレスでVPSに接続する

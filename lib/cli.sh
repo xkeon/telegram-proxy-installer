@@ -44,7 +44,7 @@ cli_option_allowed() {
   local allowed=""
   [[ "$2" == --lang ]] && return 0
   case "$1" in
-    menu | preview) allowed="" ;;
+    menu) allowed="" ;;
     language) allowed="--dry-run" ;;
     install | configure)
       allowed="--mode --config --non-interactive --yes --dry-run --domain --port --bind-ip --bind-ipv6 --ee-domain --dd-domain --ee-port --dd-port --ee-bind-ip --dd-bind-ip --ee-bind-ipv6 --dd-bind-ipv6 --front-domain --public-ipv4 --public-ipv6 --bbr --firewall --reinstall --show-secret --qr"
@@ -90,7 +90,7 @@ manager_main() {
     return 0
     ;;
   self_update) cmd=self-update ;; self_heal) cmd=self-heal ;; rotate_secret) cmd=rotate-secret ;; regional_diagnose) cmd=regional-diagnose ;; esac
-  case "$cmd" in menu | preview | install | configure | status | links | service | backups | monitor | watchdog | \
+  case "$cmd" in menu | install | configure | status | links | service | backups | monitor | watchdog | \
     language | healthcheck | self-heal | self-update | migrate | rollback | uninstall | upgrade | rotate-secret | regional-diagnose) ;;
   *)
     printf '%s %s\n' "$(t err_unknown_cmd)" "$cmd" >&2
@@ -275,7 +275,6 @@ manager_main() {
       if [[ "$explicit_lang" -eq 1 ]]; then save_preferences || return 1; fi
       interactive_menu
       ;;
-    preview) cmd_preview --lang "$UI_LANG" ;;
     install | configure) manager_install "$cmd" ;;
     status) cmd_status "$json" ;;
     links) cmd_links "$SHOW_SECRET" "$SHOW_QR" ;;

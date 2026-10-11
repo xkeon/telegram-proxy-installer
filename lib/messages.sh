@@ -71,7 +71,7 @@ extra_translation() {
     uninstall_scope) texts=('Removes selected services, containers and proxy configuration. Backups, packages and existing firewall rules remain.' '删除所选服务、容器和代理配置；保留备份、软件包与已有防火墙规则。' '선택 서비스, 컨테이너, 설정을 삭제합니다. 백업, 패키지, 방화벽 규칙은 유지됩니다.' '選択サービス、コンテナ、設定を削除します。バックアップ、パッケージ、既存ファイアウォールは保持します。') ;;
     missing_argument) texts=('Missing or unsupported argument:' '参数缺失或不受支持：' '인수가 없거나 지원되지 않습니다:' '引数が不足、または未対応です：') ;;
     root_needed) texts=('This operation requires root.' '此操作需要 root 权限。' '이 작업에는 root 권한이 필요합니다.' 'この操作には root 権限が必要です。') ;;
-    no_changes) texts=('Preview only; no changes applied.' '仅预览，未执行变更。' '미리 보기만; 변경 없음.' 'プレビューのみ。変更なし。') ;;
+    no_changes) texts=('Dry run; no changes applied.' '试运行，未执行变更。' '시험 실행: 변경 없음.' 'ドライラン。変更なし。') ;;
     done) texts=('Completed.' '已完成。' '완료.' '完了。') ;;
     dependency) texts=('Required command is missing:' '缺少必需命令：' '필수 명령 없음:' '必要なコマンドがありません：') ;;
     *) return 1 ;;

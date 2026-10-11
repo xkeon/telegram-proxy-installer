@@ -148,24 +148,29 @@ interactive_menu
         (self.config / "ee.env").write_text(
             f"EE_PORT=$(touch {shlex.quote(str(marker))})\nEE_SECRET=private-value\n"
         )
-        result = self.run_pipe("cmd_preview --lang zh\n")
+        result = self.run_pipe("UI_LANG=zh\n" + SELECT_MENU, "0\n")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(marker.exists())
         self.assertNotIn("private-value", result.stdout)
         self.assertIn(":?", result.stdout)
 
-    def test_preview_entrypoint_supports_all_languages_without_root(self):
+    def test_actual_menu_supports_all_languages(self):
         for language, title in (("en", "Main Menu"), ("zh", "主菜单"),
                                 ("ko", "메인 메뉴"), ("ja", "メインメニュー")):
             with self.subTest(language=language):
-                result = subprocess.run(
-                    ["bash", str(REPO / "install.sh"), "preview", "--lang", language],
-                    text=True, capture_output=True, timeout=10,
-                )
+                result = self.run_pipe(f"UI_LANG={language}\n" + SELECT_MENU, "0\n")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(title, result.stdout)
-                self.assertNotIn("Please run as root", result.stdout)
+                self.assertIn("selected=0", result.stdout)
                 self.assertNotIn("\x1b", result.stdout)
+
+    def test_removed_preview_command_is_rejected_before_any_action(self):
+        result = self.run_pipe('main preview --lang zh\n')
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertNotIn("主菜单", result.stdout)
+        help_result = self.run_pipe('main --help\n')
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertNotIn("install.sh preview", help_result.stdout)
 
     def test_arrow_down_then_enter_selects_healthcheck(self):
         code, output = self.run_terminal(SELECT_MENU, "\x1b[B\n")
