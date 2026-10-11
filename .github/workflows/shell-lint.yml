@@ -27,7 +27,7 @@ jobs:
           SHELLCHECK_OPTS: -x -a
 
       - name: Run shfmt check
-        run: shfmt -d -i 2 -ci -bn install.sh lib/*.sh
+        run: shfmt -d -i 2 -ci -bn bootstrap.sh install.sh lib/*.sh
 
       - name: Run installer regression tests
         run: python3 -B -m unittest discover -s tests -v

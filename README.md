@@ -6,7 +6,7 @@ One-click interactive installer for Telegram MTProto proxy on Ubuntu 26.04 LTS.
 
 - EE (FakeTLS): `nineseconds/mtg`
 - DD (padding): `telegrammessenger/proxy`
-- Entry script: `install.sh`
+- One-command launcher: `bootstrap.sh`; management script: `install.sh`
 
 <a id="english"></a>
 ## English
@@ -64,21 +64,10 @@ NAT/public IP checks are separate from local bindings; set `PUBLIC_IPV4/PUBLIC_I
 
 ### Quick Start
 
-Copy the entire block into your VPS terminal. It installs Git first, downloads or updates the project, then opens the working management menu using its full path. A download or update failure stops execution.
+Run this command on your VPS. It downloads the standalone `bootstrap.sh`, which installs Git when needed, downloads or updates the complete project and opens the management menu. It works from any directory and stops if preparation fails.
 
 ```bash
-(
-  set -e
-  sudo apt-get update
-  sudo apt-get install -y git ca-certificates
-  proxy_repo="$HOME/telegram-proxy-installer"
-  if [ -d "$proxy_repo/.git" ]; then
-    git -C "$proxy_repo" pull --ff-only
-  else
-    git clone https://github.com/xkeon/telegram-proxy-installer.git "$proxy_repo"
-  fi
-  sudo bash "$proxy_repo/install.sh" --lang en
-)
+sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/xkeon/telegram-proxy-installer/main/bootstrap.sh -o "$HOME/telegram-proxy-start.sh" && bash "$HOME/telegram-proxy-start.sh" --lang en
 ```
 
 ### Connect to Your VPS by IP
@@ -219,21 +208,10 @@ NAT 公网地址与本机绑定分别检查，可填写 `PUBLIC_IPV4/PUBLIC_IPV6
 
 ### 快速开始
 
-完整复制以下命令到 VPS 终端。先安装 Git，再下载或更新项目，最后通过完整路径打开实际的管理菜单；下载或更新失败时会立即停止。
+在 VPS 终端执行这一条命令即可。它下载独立的 `bootstrap.sh`，自动安装所需的 Git，下载或更新完整项目，再打开实际管理菜单；不依赖当前目录，准备失败会停止。
 
 ```bash
-(
-  set -e
-  sudo apt-get update
-  sudo apt-get install -y git ca-certificates
-  proxy_repo="$HOME/telegram-proxy-installer"
-  if [ -d "$proxy_repo/.git" ]; then
-    git -C "$proxy_repo" pull --ff-only
-  else
-    git clone https://github.com/xkeon/telegram-proxy-installer.git "$proxy_repo"
-  fi
-  sudo bash "$proxy_repo/install.sh" --lang zh
-)
+sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/xkeon/telegram-proxy-installer/main/bootstrap.sh -o "$HOME/telegram-proxy-start.sh" && bash "$HOME/telegram-proxy-start.sh" --lang zh
 ```
 
 ### 通过 IP 地址连接 VPS
@@ -365,21 +343,10 @@ NAT 공개 IP와 로컬 바인딩을 분리하고 IPv6 DNS를 정규화합니다
 
 ### 빠른 시작
 
-VPS 터미널에 전체 블록을 복사하세요. Git 설치 후 프로젝트를 다운로드하거나 업데이트하고 전체 경로로 관리 메뉴를 엽니다. 다운로드/업데이트 실패 시 중단합니다.
+VPS에서 아래 명령을 실행하세요. 독립 실행 스크립트 `bootstrap.sh`가 필요한 Git을 설치하고 전체 프로젝트를 다운로드하거나 업데이트한 후 관리 메뉴를 엽니다. 현재 디렉터리에 의존하지 않으며 준비 실패 시 중단합니다.
 
 ```bash
-(
-  set -e
-  sudo apt-get update
-  sudo apt-get install -y git ca-certificates
-  proxy_repo="$HOME/telegram-proxy-installer"
-  if [ -d "$proxy_repo/.git" ]; then
-    git -C "$proxy_repo" pull --ff-only
-  else
-    git clone https://github.com/xkeon/telegram-proxy-installer.git "$proxy_repo"
-  fi
-  sudo bash "$proxy_repo/install.sh" --lang ko
-)
+sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/xkeon/telegram-proxy-installer/main/bootstrap.sh -o "$HOME/telegram-proxy-start.sh" && bash "$HOME/telegram-proxy-start.sh" --lang ko
 ```
 
 ### IP 주소로 VPS 접속하기
@@ -511,21 +478,10 @@ NAT の公開 IP とローカルバインドを区別し、IPv6 DNS を正規化
 
 ### クイックスタート
 
-VPS の端末にブロック全体をコピーしてください。Git をインストールし、取得または更新後にフルパスで管理メニューを開きます。取得や更新に失敗した場合は停止します。
+VPS で次のコマンドを実行してください。単独で動く `bootstrap.sh` が必要な Git をインストールし、プロジェクト全体を取得または更新して管理メニューを開きます。現在のディレクトリに依存せず、準備失敗時には停止します。
 
 ```bash
-(
-  set -e
-  sudo apt-get update
-  sudo apt-get install -y git ca-certificates
-  proxy_repo="$HOME/telegram-proxy-installer"
-  if [ -d "$proxy_repo/.git" ]; then
-    git -C "$proxy_repo" pull --ff-only
-  else
-    git clone https://github.com/xkeon/telegram-proxy-installer.git "$proxy_repo"
-  fi
-  sudo bash "$proxy_repo/install.sh" --lang ja
-)
+sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/xkeon/telegram-proxy-installer/main/bootstrap.sh -o "$HOME/telegram-proxy-start.sh" && bash "$HOME/telegram-proxy-start.sh" --lang ja
 ```
 
 ### IPアドレスでVPSに接続する
@@ -617,12 +573,12 @@ Run these checks from the repository root with Bash, ShellCheck 0.10.0, shfmt 3.
 在仓库根目录运行以下检查，需要 Bash、ShellCheck 0.10.0、shfmt 3.8.0 和 Python 3：
 
 ```bash
-bash -n install.sh
-shellcheck -x -a install.sh
-shfmt -d -i 2 -ci -bn install.sh lib/*.sh
+bash -n install.sh bootstrap.sh
+shellcheck -x -a install.sh bootstrap.sh
+shfmt -d -i 2 -ci -bn bootstrap.sh install.sh lib/*.sh
 python3 -B -m unittest discover -s tests -v
 ```
 
-Regression tests use temporary configuration files, mock host mutations and exercise real pseudo-terminals. They cover installation/configuration/rotation/migration recovery, backup retention, CLI validation, redacted reports, NAT, bounded watchdog behavior and terminal navigation. Run in the Ubuntu 26.04 development image with root, qrencode and /usr/bin/docker to also execute the real systemd parser, offline QR and private preference checks; these three checks are explicitly skipped on hosts lacking those capabilities. Real proxy deployment still requires a VPS meeting the requirements above.
+Regression tests use temporary configuration files, mock host mutations and exercise real pseudo-terminals. The standalone bootstrap is checked for missing Git, failed downloads/updates, partial checkout cleanup, existing local changes and language forwarding. They cover installation/configuration/rotation/migration recovery, backup retention, CLI validation, redacted reports, NAT, bounded watchdog behavior and terminal navigation. Run in the Ubuntu 26.04 development image with root, qrencode and /usr/bin/docker to also execute the real systemd parser, offline QR and private preference checks; these three checks are explicitly skipped on hosts lacking those capabilities. Real proxy deployment still requires a VPS meeting the requirements above.
 
 回归测试使用临时配置、模拟主机变更并通过真实伪终端验证交互，覆盖安装/配置/轮换/迁移失败恢复、备份清理、命令参数、报告隐藏密钥、NAT、自愈限制和终端导航。在带 root、qrencode 与 /usr/bin/docker 的 Ubuntu 26.04 开发镜像中，还会执行真实 systemd 解析、离线二维码和私密偏好文件检查；缺少这些条件的主机会明确跳过这三项。实际代理部署仍需符合上述要求的 VPS。
