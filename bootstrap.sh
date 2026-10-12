@@ -22,7 +22,7 @@ bootstrap_as_root() {
 bootstrap_check_checkout() {
   local directory="$1" file=""
   for file in install.sh lib/cli.sh lib/installer.sh lib/management.sh lib/menu.sh \
-    lib/messages.sh lib/migration.sh lib/operations.sh lib/terminal.sh lib/setup-ui.sh; do
+    lib/messages.sh lib/migration.sh lib/operations.sh lib/terminal.sh lib/setup-ui.sh lib/verification.sh; do
     [[ -r "${directory}/${file}" ]] || {
       printf '%s %s\n' 'Incomplete download / 项目文件不完整：' "$file" >&2
       return 1

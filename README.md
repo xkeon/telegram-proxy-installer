@@ -31,6 +31,10 @@ Piped input, `TERM=dumb`, and very small terminals use a numbered text menu. Set
 
 Installation asks for a proxy type, public address and port. Cover domain, bindings, NAT, BBR and firewall options stay under Advanced options. Enter keeps the current value, `0` goes back, and `q` cancels. Review addresses and ports, edit if needed, then apply once. Longer summaries remain in terminal scrollback. Language and backup retention are saved in `/etc/telegram-proxy/preferences.env`.
 
+Every installation/configuration ends with an itemized check: saved configuration and secrets, service/container state, running image, port publishing, actual TCP connections for each bound IP family, boot startup, entry DNS, FakeTLS cover TLS/certificate, and an entry TCP connection from the VPS. Requested BBR and UFW settings are also checked. A local failure triggers recovery and suppresses success/link output. DNS, TLS, or entry-loopback problems show warnings and a warning summary while retaining a locally healthy deployment. TCP probes have a five-second overall limit. `healthcheck` also uses actual TCP connections; a listener or Docker mapping alone cannot pass it.
+
+External access and Telegram connectivity are marked **UNVERIFIED** until tested from another machine/client. The summary prints a port-specific `nc -vz -w 5 HOST PORT` command to run on another machine, and reminds you to allow that TCP port in the cloud firewall. A connection initiated by the VPS cannot establish external reachability; NAT may also prevent loopback connections.
+
 `configure` changes domains, ports and bindings without package installation. Repeating `install` preserves existing secrets; `--reinstall` explicitly generates new ones. Changing the EE FakeTLS domain rotates its embedded secret, so clients need new links. Opening Connection info in the menu shows usable links, with an optional local QR. CLI links are masked by default; `--show-secret` reveals them and `--qr` renders a complete QR locally with qrencode.
 
 ```bash
@@ -181,6 +185,10 @@ docker image inspect telegrammessenger/proxy:latest --format '{{index .RepoDiges
 
 安装向导先选择代理类型，然后填写公网地址和端口；伪装域名、绑定地址、NAT、BBR、防火墙放在可选的高级设置中。回车保留当前值，`0` 返回，`q` 取消。确认页保留地址和端口供核对，可以修改后一次确认执行；内容较长时保留在终端滚动记录中。语言与备份保留数量保存到 `/etc/telegram-proxy/preferences.env`。
 
+每次安装或修改配置后，都会逐项标明通过、失败、警告或未验证：配置文件与密钥、服务、容器、运行镜像、端口映射、各绑定 IP 协议族的实际 TCP 连接、开机自启、入口 DNS、FakeTLS 伪装域名的 TLS/证书，以及 VPS 发起的入口 TCP 回连。主动启用的 BBR 和 UFW 也会检查。本机检查失败会恢复变更，并停止输出成功结果与连接链接；DNS、TLS、入口回连异常会保留本机正常的部署，同时显示明确警告与汇总。TCP 检测总超时为 5 秒，`healthcheck` 同样会实际建立连接，仅有监听或 Docker 映射不能算通过。
+
+外部公网访问及 Telegram 连接会明确标为**未验证**。结果中会按实际端口给出 `nc -vz -w 5 HOST PORT`，需在另一台机器执行，并提醒云安全组放行对应 TCP 端口。本机回连不能证明外部可达；部分 NAT 也不支持回连，需要客户端验证。
+
 `configure` 可以修改域名、端口和绑定地址，无需重新安装软件。再次 `install` 默认保留已有密钥，`--reinstall` 才重新生成。更换 EE 的 FakeTLS 域名会轮换嵌入域名的密钥，需要给客户端更新链接。菜单的“连接信息”直接显示可用链接，可以继续显示本地二维码；命令行链接默认隐藏密钥，`--show-secret` 显示完整链接，`--qr` 使用 qrencode 在本机生成完整二维码。
 
 ```bash
@@ -327,6 +335,10 @@ docker image inspect telegrammessenger/proxy:latest --format '{{index .RepoDiges
 
 설치는 종류, 공개 주소 및 포트만 묻습니다. 위장 도메인, 바인딩, NAT, BBR 및 방화벽은 선택 사항인 고급 설정에 있습니다. Enter는 현재 값을 유지하고 `0`은 이전 단계, `q`는 취소입니다. 주소와 포트를 확인하거나 수정한 뒤 한 번 적용합니다. 긴 요약은 스크롤 기록에 유지됩니다. 언어와 백업 보관 개수는 저장됩니다.
 
+설치와 설정 변경 후 설정/키, 서비스/컨테이너, 이미지, 포트 매핑, IPv4/IPv6 실제 TCP 연결, 부팅 자동 실행, DNS, 위장 도메인 TLS/인증서, VPS에서 접속 주소로의 TCP 연결을 항목별로 확인합니다. 요청한 BBR/UFW도 점검합니다. 로컬 실패 시 복구하며 성공과 링크를 표시하지 않습니다. DNS/TLS/접속 주소 연결 문제는 경고로 표시하고 로컬 정상 배포를 유지합니다. TCP 검사 전체 제한은 5초이며 `healthcheck`도 실제 연결을 사용합니다.
+
+외부 접속 및 Telegram 연결은 **미확인**으로 표시합니다. 다른 기기에서 실행할 `nc -vz -w 5 HOST PORT`와 클라우드 방화벽 허용 포트를 제공합니다. VPS 자체 연결로 외부 접속을 증명할 수 없으며 일부 NAT는 루프백을 지원하지 않습니다.
+
 `configure`는 패키지를 다시 설치하지 않고 설정을 바꿉니다. 반복 설치는 기존 시크릿을 유지하고 `--reinstall`은 새 시크릿을 생성합니다. EE FakeTLS 도메인 변경 시 링크도 바뀝니다. 메뉴의 연결 정보는 사용 가능한 링크와 선택 가능한 로컬 QR을 표시합니다. CLI 링크는 기본적으로 숨기며 `--show-secret` 또는 `--qr`로 표시합니다.
 
 ```bash
@@ -464,6 +476,10 @@ docker image inspect telegrammessenger/proxy:latest --format '{{index .RepoDiges
 
 設定では種類、公開アドレス、ポートを入力します。偽装ドメイン、バインド、NAT、BBR、ファイアウォールは任意の高度な設定にまとめています。Enter で現在値を保持し、`0` で前へ、`q` で取消します。アドレスとポートを確認・修正して一度適用します。長い要約はスクロール履歴に保持します。言語とバックアップ保持数を保存します。
 
+インストール・設定変更後に設定/キー、サービス/コンテナ、イメージ、ポート公開、IPv4/IPv6 の実際の TCP 接続、自動起動、DNS、偽装ドメインの TLS/証明書、VPS から接続先への TCP 接続を項目別に確認します。指定した BBR/UFW も点検します。ローカルの失敗時は復元し、成功や接続リンクを表示しません。DNS/TLS/接続先への接続の問題は警告として表示し、ローカルで正常な設定を保持します。TCP 点検全体の上限は 5 秒で、`healthcheck` も実際の接続を行います。
+
+外部接続と Telegram の実接続は **未検証**と表示します。別の端末で実行する `nc -vz -w 5 HOST PORT` と、クラウドのファイアウォールで許可するポートを示します。VPS 自身の接続で外部からの到達性は証明できず、一部の NAT は折り返し接続に非対応です。
+
 `configure` はパッケージを再インストールせず設定を変更します。再度のインストールは既存シークレットを保持し、`--reinstall` で新規生成します。EE FakeTLS ドメイン変更時にはリンクも変わります。メニューの接続情報は利用可能なリンクと任意のローカル QR を表示します。CLI リンクは通常非表示、`--show-secret` または `--qr` で表示します。
 
 ```bash
@@ -580,9 +596,9 @@ docker image inspect telegrammessenger/proxy:latest --format '{{index .RepoDiges
 
 ## Development / 开发与验证
 
-Run these checks from the repository root with Bash, ShellCheck 0.10.0, shfmt 3.8.0, and Python 3:
+Run these checks from the repository root with Bash, ShellCheck 0.10.0, shfmt 3.8.0, and Python 3.11+:
 
-在仓库根目录运行以下检查，需要 Bash、ShellCheck 0.10.0、shfmt 3.8.0 和 Python 3：
+在仓库根目录运行以下检查，需要 Bash、ShellCheck 0.10.0、shfmt 3.8.0 和 Python 3.11+：
 
 ```bash
 bash -n install.sh
@@ -592,6 +608,6 @@ shfmt -d -i 2 -ci -bn bootstrap.sh install.sh lib/*.sh
 python3 -B -m unittest discover -s tests -v
 ```
 
-Regression tests use temporary configuration files, mock host mutations and exercise real pseudo-terminals. The standalone bootstrap is checked for missing Git, failed downloads/updates, partial checkout cleanup, existing local changes and language forwarding. They cover installation/configuration/rotation/migration recovery, backup retention, CLI validation, redacted reports, NAT, bounded watchdog behavior and terminal navigation. Run in the Ubuntu 26.04 development image with root, qrencode and /usr/bin/docker to also execute the real systemd parser, offline QR and private preference checks; these three checks are explicitly skipped on hosts lacking those capabilities. Real proxy deployment still requires a VPS meeting the requirements above.
+Regression tests use temporary configuration files, mock host mutations and exercise real pseudo-terminals. The standalone bootstrap is checked for missing Git, failed downloads/updates, partial checkout cleanup, existing local changes and language forwarding. They cover installation/configuration/rotation/migration recovery, backup retention, CLI validation, redacted reports, NAT, bounded watchdog behavior and terminal navigation. Run in the Ubuntu 26.04 development image with root, qrencode and /usr/bin/docker to also execute the real systemd parser, offline QR and private preference checks; these three checks are explicitly skipped on hosts lacking those capabilities. TCP verification tests also exercise real IPv4/IPv6 loopback listeners, closed ports, misleading listener/mapping metadata, itemized warnings and recovery after a refused connection. IPv6 loopback tests explicitly skip when that capability is unavailable. Real proxy deployment still requires a VPS meeting the requirements above.
 
-回归测试使用临时配置、模拟主机变更并通过真实伪终端验证交互，覆盖安装/配置/轮换/迁移失败恢复、备份清理、命令参数、报告隐藏密钥、NAT、自愈限制和终端导航。在带 root、qrencode 与 /usr/bin/docker 的 Ubuntu 26.04 开发镜像中，还会执行真实 systemd 解析、离线二维码和私密偏好文件检查；缺少这些条件的主机会明确跳过这三项。实际代理部署仍需符合上述要求的 VPS。
+回归测试使用临时配置、模拟主机变更并通过真实伪终端验证交互，覆盖安装/配置/轮换/迁移失败恢复、备份清理、命令参数、报告隐藏密钥、NAT、自愈限制和终端导航。在带 root、qrencode 与 /usr/bin/docker 的 Ubuntu 26.04 开发镜像中，还会执行真实 systemd 解析、离线二维码和私密偏好文件检查；缺少这些条件的主机会明确跳过这三项。端口验证还覆盖真实 IPv4/IPv6 本机监听与关闭端口、仅有监听或映射时的误判、逐项警告及连接失败恢复；不具备 IPv6 本机通信能力时会明确跳过对应测试。实际代理部署仍需符合上述要求的 VPS。

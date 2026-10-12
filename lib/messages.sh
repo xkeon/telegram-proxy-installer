@@ -8,6 +8,34 @@ extra_translation() {
     return 0
   fi
   case "$key" in
+    verify_pass) texts=('PASS' '通过' '정상' '成功') ;;
+    verify_fail) texts=('FAIL' '失败' '실패' '失敗') ;;
+    verify_warn) texts=('WARNING' '警告' '경고' '警告') ;;
+    verify_pending) texts=('UNVERIFIED' '未验证' '미확인' '未検証') ;;
+    verify_skip) texts=('N/A' '不适用' '해당 없음' '対象外') ;;
+    verify_title) texts=('Checking the saved deployment' '配置完成，开始逐项检查' '저장된 배포 점검' '保存した設定を項目別に点検') ;;
+    verify_config) texts=('Saved configuration and secret' '配置文件与密钥' '설정 파일 및 키' '設定ファイルとキー') ;;
+    verify_config_fix) texts=('Configuration is missing, invalid or inconsistent; inspect the saved files.' '配置缺失、无效或不一致，请检查已保存的文件。' '설정 누락 또는 불일치. 저장된 파일을 확인하세요.' '設定の欠落・不一致。保存したファイルを確認してください。') ;;
+    verify_service) texts=('Service running' '服务运行' '서비스 실행' 'サービスの実行') ;;
+    verify_autostart) texts=('Service enabled at boot' '开机自动启动' '부팅 시 자동 실행' '起動時の自動実行') ;;
+    verify_container) texts=('Container running' '容器运行' '컨테이너 실행' 'コンテナの実行') ;;
+    verify_image) texts=('Running image matches configuration' '运行镜像与配置一致' '실행 이미지와 설정 일치' '実行イメージと設定の一致') ;;
+    verify_mapping) texts=('Port publishing and bindings' '端口映射与绑定地址' '포트 매핑 및 바인딩' 'ポート公開とバインド') ;;
+    verify_local_tcp) texts=('Local TCP connection' '本机 TCP 端口连接' '로컬 TCP 연결' 'ローカル TCP 接続') ;;
+    verify_tcp_fix) texts=('Connection failed. Check container logs, port publishing and local firewall rules.' '端口连接失败，请检查容器日志、端口映射和本机防火墙。' '연결 실패. 로그, 포트 매핑, 로컬 방화벽을 확인하세요.' '接続失敗。ログ、ポート公開、ローカルのファイアウォールを確認してください。') ;;
+    verify_dns4) texts=('Entry DNS A records' '入口域名 A 记录' '접속 도메인 A 레코드' '接続ドメインの A レコード') ;;
+    verify_dns6) texts=('Entry DNS AAAA records' '入口域名 AAAA 记录' '접속 도메인 AAAA 레코드' '接続ドメインの AAAA レコード') ;;
+    verify_dns_target) texts=('DNS points to this VPS' 'DNS 是否指向此 VPS' 'DNS와 VPS 주소 일치' 'DNS と VPS アドレスの一致') ;;
+    verify_literal_ip) texts=('The entry is an IP address; DNS is not used.' '使用 IP 地址连接，无需域名解析。' 'IP 주소를 사용하므로 DNS가 필요 없습니다.' 'IP アドレスを使用するため DNS は不要です。') ;;
+    verify_tls) texts=('HTTPS cover domain TLS and certificate' '伪装域名 TLS 与证书' '위장 도메인 TLS 및 인증서' '偽装ドメインの TLS と証明書') ;;
+    verify_entry_tcp) texts=('Entry TCP connection from this VPS' '入口 TCP 回连（本机发起）' 'VPS에서 접속 주소로 TCP 연결' 'この VPS から接続先への TCP 接続') ;;
+    verify_entry_fix) texts=('Entry connection failed. Check DNS, NAT/port forwarding and firewall rules; NAT loopback may be unsupported.' '入口连接失败，请检查 DNS、NAT 端口转发和防火墙；部分 NAT 不支持本机回连。' '접속 실패. DNS, NAT 포워딩, 방화벽을 확인하세요. NAT 루프백 미지원일 수 있습니다.' '接続失敗。DNS、NAT 転送、ファイアウォールを確認してください。NAT が折り返し接続に非対応の場合もあります。') ;;
+    verify_external) texts=('External access and Telegram connection' '外部公网访问与 Telegram 实际连接' '외부 접속 및 Telegram 연결' '外部からの接続と Telegram の実接続') ;;
+    verify_external_fix) texts=('Test from another machine and Telegram; allow this port in the cloud firewall:' '请从另一台机器及 Telegram 测试，云安全组需放行此端口：' '다른 기기와 Telegram에서 확인하고 클라우드 방화벽에서 허용하세요:' '別の端末と Telegram で確認し、クラウドのファイアウォールで許可してください：') ;;
+    verify_firewall_fix) texts=('UFW was requested but is not active; check its rules.' '已要求启用 UFW，但目前未启用，请检查规则。' 'UFW 활성화 요청에도 비활성 상태입니다. 규칙을 확인하세요.' 'UFW 有効化を指定しましたが無効です。ルールを確認してください。') ;;
+    verify_local_failed) texts=('Local checks failed. The change will be recovered; no ready-to-use result is reported.' '本机检查失败，将恢复变更；本次配置未通过可用性检查。' '로컬 점검 실패. 변경을 복구하며 사용 가능으로 표시하지 않습니다.' 'ローカル点検失敗。変更を復元し、利用可能とは表示しません。') ;;
+    verify_warning_summary) texts=('Configuration saved with warnings; resolve the items above and verify external access.' '配置已保存，但检查有警告；请处理上方异常并验证公网连接。' '설정 저장 완료, 경고 있음. 문제를 해결하고 외부 접속을 확인하세요.' '設定を保存しましたが警告があります。上の問題を解決し、外部接続を確認してください。') ;;
+    verify_local_ready) texts=('Local checks passed. Verify external access with a Telegram client.' '本机检查通过；请用 Telegram 客户端验证公网连接。' '로컬 점검 통과. Telegram 클라이언트에서 외부 접속을 확인하세요.' 'ローカル点検成功。Telegram クライアントで外部接続を確認してください。') ;;
     managed_scope) texts=('Applies to' '操作范围' '적용 대상' '操作対象') ;;
     mode_all_managed) texts=('All installed proxies' '全部已安装代理' '설치된 모든 프록시' '設定済みの全プロキシ') ;;
     menu_title) texts=('Dashboard' '控制台' '대시보드' 'ダッシュボード') ;;

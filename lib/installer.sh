@@ -254,7 +254,7 @@ apply_settings() {
     systemctl enable "$service" || return 1
     systemctl restart "$service" || return 1
   done < <(selected_modes)
-  wait_for_healthcheck
+  wait_for_healthcheck 1
 }
 
 apply_host_settings() {
@@ -351,7 +351,13 @@ manager_install() {
     recover_transaction "$backup"
     return 1
   fi
+  if ! verify_installation; then
+    undo_host_settings || t recovery_failed
+    recover_transaction "$backup"
+    return 1
+  fi
   prune_backups "$BACKUP_KEEP" || return 1
-  t step_summary
-  cmd_links "$SHOW_SECRET" "$SHOW_QR"
+  printf '\n%s\n' "$(t home_connect)"
+  cmd_links "$SHOW_SECRET" "$SHOW_QR" || return 1
+  verification_summary
 }

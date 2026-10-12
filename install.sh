@@ -1240,12 +1240,12 @@ get_primary_ipv6() {
 
 resolve_domain_a_records() {
   local domain="$1"
-  dig +short A "$domain" 2>/dev/null | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/'
+  dig +time=2 +tries=1 +short A "$domain" 2>/dev/null | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/'
 }
 
 resolve_domain_aaaa_records() {
   local domain="$1"
-  dig +short AAAA "$domain" 2>/dev/null | awk '/:/'
+  dig +time=2 +tries=1 +short AAAA "$domain" 2>/dev/null | awk '/:/'
 }
 
 check_domain_dns() {
@@ -2137,144 +2137,6 @@ diag_mode_regional() {
   fi
 }
 
-check_mode_health() {
-  local mode="$1"
-  local service_name=""
-  local container_name=""
-  local env_file=""
-  local port=""
-  local bind_ipv4=""
-  local bind_ipv6=""
-  local expected_image=""
-  local container_port_key=""
-  local ok=0
-  local mode_container_running=0
-  local service_restarts=0
-  local container_restarts=0
-  local running_image=""
-  local actual_bind_ipv4=""
-  local actual_bind_ipv6=""
-  local actual_bind_ipv4_port=""
-  local actual_bind_ipv6_port=""
-  local legacy_container_name=""
-
-  case "$mode" in
-    ee)
-      service_name="$EE_SERVICE_NAME"
-      container_name="$EE_CONTAINER_NAME"
-      env_file="$EE_ENV_FILE"
-      container_port_key="3128/tcp"
-      ;;
-    dd)
-      service_name="$DD_SERVICE_NAME"
-      container_name="$DD_CONTAINER_NAME"
-      env_file="$DD_ENV_FILE"
-      container_port_key="443/tcp"
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-
-  legacy_container_name="$(detect_legacy_running_container "$mode" || true)"
-  if [[ -n "$legacy_container_name" ]]; then
-    mode_container_running=1
-  fi
-
-  if [[ ! -f "$env_file" ]]; then
-    if [[ "$mode_container_running" -eq 1 ]]; then
-      printf '[%s] %s (%s)\n' "$mode" "$(t note_legacy_detected)" "$env_file"
-      printf '[%s] %s\n' "$mode" "$(t note_legacy_migrate)"
-      return 2
-    fi
-    printf '[%s] %s: %s\n' "$mode" "$(t hc_not_installed)" "$env_file"
-    return 2
-  fi
-
-  if ! systemctl is-active --quiet "$service_name"; then
-    printf '[%s] %s: %s\n' "$mode" "$(t hc_service_not_active)" "$service_name"
-    ok=1
-  fi
-
-  if ! docker ps --format '{{.Names}}' | grep -qx "$container_name"; then
-    printf '[%s] %s: %s\n' "$mode" "$(t hc_container_not_running)" "$container_name"
-    ok=1
-  fi
-
-  load_mode_config "$mode" || return 1
-  if [[ "$mode" == "ee" ]]; then
-    port="${EE_PORT}"
-    bind_ipv4="${EE_BIND_IP-0.0.0.0}"
-    bind_ipv6="${EE_BIND_IPV6:-}"
-    expected_image="${MTG_IMAGE:-}"
-  else
-    port="${DD_PORT}"
-    bind_ipv4="${DD_BIND_IP-0.0.0.0}"
-    bind_ipv6="${DD_BIND_IPV6:-}"
-    expected_image="${DD_IMAGE:-}"
-    if ! normalize_dd_secret "${DD_BASE_SECRET:-${DD_SECRET:-}}"; then
-      printf '[%s] %s\n' "$mode" "$(t err_invalid_dd_secret)"
-      ok=1
-    fi
-  fi
-
-  service_restarts="$(systemctl show -p NRestarts --value "$service_name" 2>/dev/null || echo 0)"
-  if [[ "$service_restarts" =~ ^[0-9]+$ ]] && ((service_restarts >= 5)); then
-    printf '[%s] %s %s\n' "$mode" "$(t warn_service_restarts)" "$service_restarts"
-  fi
-
-  container_restarts="$(docker inspect -f '{{.RestartCount}}' "$container_name" 2>/dev/null || echo 0)"
-  if [[ "$container_restarts" =~ ^[0-9]+$ ]] && ((container_restarts >= 5)); then
-    printf '[%s] %s %s\n' "$mode" "$(t warn_container_restarts)" "$container_restarts"
-  fi
-
-  running_image="$(docker inspect -f '{{.Config.Image}}' "$container_name" 2>/dev/null || true)"
-  if [[ -n "$expected_image" && -n "$running_image" && "$running_image" != "$expected_image" ]]; then
-    printf '[%s] %s: %s=%s %s=%s\n' "$mode" "$(t hc_image_mismatch)" "$(t label_running)" "$running_image" "$(t label_configured)" "$expected_image"
-    ok=1
-  fi
-
-  actual_bind_ipv4="$(docker_binding_ip_by_family "$container_name" "$container_port_key" "ipv4")"
-  actual_bind_ipv4_port="$(docker_binding_port_by_family "$container_name" "$container_port_key" "ipv4")"
-  actual_bind_ipv6="$(docker_binding_ip_by_family "$container_name" "$container_port_key" "ipv6")"
-  actual_bind_ipv6_port="$(docker_binding_port_by_family "$container_name" "$container_port_key" "ipv6")"
-  if [[ -n "$bind_ipv4" ]] && { [[ "$(canonical_ip "$actual_bind_ipv4" || true)" != "$(canonical_ip "$bind_ipv4" || true)" ]] || [[ "$actual_bind_ipv4_port" != "$port" ]]; }; then
-    echo "[${mode}] $(t err_port_binding_mismatch)"
-    echo "[${mode}] $(t label_expected)=$(format_bind_targets "$bind_ipv4" "$bind_ipv6" "$port") $(t label_actual)=$(format_bind_targets "$actual_bind_ipv4" "$actual_bind_ipv6" "${actual_bind_ipv4_port:-${actual_bind_ipv6_port:-}}")"
-    ok=1
-  fi
-  if [[ -z "$bind_ipv4" && -n "$actual_bind_ipv4" ]]; then
-    echo "[${mode}] $(t err_port_binding_mismatch)"
-    echo "[${mode}] $(t label_expected)=$(format_bind_targets "$bind_ipv4" "$bind_ipv6" "$port") $(t label_actual)=$(format_bind_targets "$actual_bind_ipv4" "$actual_bind_ipv6" "${actual_bind_ipv4_port:-${actual_bind_ipv6_port:-}}")"
-    ok=1
-  fi
-  if [[ -n "$bind_ipv6" ]] && { [[ "$(canonical_ip "$actual_bind_ipv6" || true)" != "$(canonical_ip "$bind_ipv6" || true)" ]] || [[ "$actual_bind_ipv6_port" != "$port" ]]; }; then
-    echo "[${mode}] $(t err_port_binding_mismatch)"
-    echo "[${mode}] $(t label_expected)=$(format_bind_targets "$bind_ipv4" "$bind_ipv6" "$port") $(t label_actual)=$(format_bind_targets "$actual_bind_ipv4" "$actual_bind_ipv6" "${actual_bind_ipv4_port:-${actual_bind_ipv6_port:-}}")"
-    ok=1
-  fi
-  if [[ -z "$bind_ipv6" && -n "$actual_bind_ipv6" ]]; then
-    echo "[${mode}] $(t err_port_binding_mismatch)"
-    echo "[${mode}] $(t label_expected)=$(format_bind_targets "$bind_ipv4" "$bind_ipv6" "$port") $(t label_actual)=$(format_bind_targets "$actual_bind_ipv4" "$actual_bind_ipv6" "${actual_bind_ipv4_port:-${actual_bind_ipv6_port:-}}")"
-    ok=1
-  fi
-
-  if ! port_in_use "$port"; then
-    printf '[%s] %s: %s\n' "$mode" "$(t hc_port_not_listening)" "$port"
-    ok=1
-  fi
-
-  if [[ "$ok" -eq 0 ]]; then
-    printf '[%s] %s\n' "$mode" "$(t hc_healthy)"
-    return 0
-  fi
-  if docker_container_exists "$container_name"; then
-    echo "[${mode}] $(t note_recent_logs)"
-    docker logs --tail 5 "$container_name" 2>&1 | sed "s/^/[${mode}] $(t label_log): /" || true
-  fi
-  return 1
-}
-
 cmd_healthcheck() {
   local hc_mode="" hc_rc=0 hc_ok=0 hc_missing=0 hc_failed=0
   while read -r hc_mode; do
@@ -2293,15 +2155,18 @@ cmd_healthcheck() {
 }
 
 wait_for_healthcheck() {
-  local attempt
+  local attempt=0 quiet_success="${1:-0}" output=""
+  output="$(mktemp)" || return 1
   for ((attempt = 1; attempt <= 10; attempt++)); do
-    if cmd_healthcheck; then
+    if cmd_healthcheck >"$output" 2>&1; then
+      if [[ "$quiet_success" -eq 0 ]]; then cat "$output"; fi
+      rm -f "$output"
       return 0
     fi
-    if ((attempt < 10)); then
-      sleep 1
-    fi
+    if ((attempt < 10)); then sleep 1; fi
   done
+  cat "$output"
+  rm -f "$output"
   return 1
 }
 
@@ -2668,6 +2533,8 @@ source "$INSTALLER_DIR/lib/operations.sh"
 source "$INSTALLER_DIR/lib/migration.sh"
 # shellcheck source=lib/cli.sh
 source "$INSTALLER_DIR/lib/cli.sh"
+# shellcheck source=lib/verification.sh
+source "$INSTALLER_DIR/lib/verification.sh"
 # shellcheck source=lib/setup-ui.sh
 source "$INSTALLER_DIR/lib/setup-ui.sh"
 # shellcheck source=lib/terminal.sh

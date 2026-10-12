@@ -8,7 +8,9 @@ menu_run() {
   fi
   "$@" || result=$?
   if [[ "$MENU_CANCELLED" -eq 1 ]]; then return 0; fi
-  if [[ "$result" -eq 0 ]]; then
+  if [[ "$result" -eq 0 && "$1" == manager_install && "$CHECK_WARNINGS" -gt 0 ]]; then
+    printf '\n%s%s%s\n' "$UI_WARN" "$(t verify_warning_summary)" "$UI_RESET"
+  elif [[ "$result" -eq 0 ]]; then
     printf '\n%s%s%s\n' "$UI_OK" "$(t operation_done)" "$UI_RESET"
   else printf '\n%s%s%s\n' "$UI_WARN" "$(t operation_problem)" "$UI_RESET" >&2; fi
   pause_menu
