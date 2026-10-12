@@ -85,7 +85,7 @@ version_check_script() {
 }
 
 version_check_ubuntu() {
-  local os="" current="" latest="" state=unknown
+  local os="" current="" latest="" state=unknown description=""
   os="$(read_env_key "$OS_RELEASE_FILE" ID || true)"
   current="$(read_env_key "$OS_RELEASE_FILE" VERSION_ID || true)"
   os="${os//\"/}" current="${current//\"/}"
@@ -93,12 +93,17 @@ version_check_ubuntu() {
     version_row version_ubuntu "$os $current" "" skip Ubuntu/LTS
     return 0
   fi
+  description="$(read_env_key "$OS_RELEASE_FILE" VERSION || true)"
+  description="${description//\"/}"
+  if [[ "$description" =~ ^([0-9]+\.[0-9]+(\.[0-9]+)?) ]]; then
+    if [[ "${BASH_REMATCH[1]}" == "$current" || "${BASH_REMATCH[1]}" == "$current".* ]]; then current="${BASH_REMATCH[1]}"; fi
+  fi
   latest="$(curl -fsSL --connect-timeout 2 --max-time 4 https://changelogs.ubuntu.com/meta-release-lts \
     | python3 -c 'import sys,re,datetime,email.utils
 versions=[]
 for block in sys.stdin.read().split("\n\n"):
  fields=dict(line.split(": ",1) for line in block.splitlines() if ": " in line)
- match=re.match(r"([0-9]+\.[0-9]+)",fields.get("Version",""))
+ match=re.match(r"([0-9]+\.[0-9]+(?:\.[0-9]+)?)",fields.get("Version",""))
  if fields.get("Supported") != "1" or not match: continue
  release=match[1]
  try:
@@ -108,7 +113,7 @@ for block in sys.stdin.read().split("\n\n"):
  versions.append((tuple(map(int,release.split("."))),release))
 if not versions: sys.exit(1)
 print(max(versions)[1])')" || latest=""
-  if [[ "$current" =~ ^[0-9]+\.[0-9]+$ && "$latest" =~ ^[0-9]+\.[0-9]+$ ]]; then
+  if [[ "$current" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ && "$latest" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
     if dpkg --compare-versions "$current" eq "$latest"; then
       state=latest
     elif dpkg --compare-versions "$current" lt "$latest"; then

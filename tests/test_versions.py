@@ -172,7 +172,17 @@ version_check_image ee
         result = self.run_bash("version_check_ubuntu")
         self.success(result)
         row = self.rows(result)[0]
-        self.assertEqual(row[1:4], ["24.04", "26.04", "update"])
+        self.assertEqual(row[1:4], ["24.04", "26.04.1", "update"])
+
+    def test_ubuntu_point_release_is_compared_instead_of_only_version_id(self):
+        (self.root / "os-release").write_text('ID=ubuntu\nVERSION_ID="26.04"\nVERSION="26.04.1 LTS (Resolute Raccoon)"\n')
+        result = self.run_bash("version_check_ubuntu")
+        self.success(result)
+        self.assertEqual(self.rows(result)[0][1:4], ["26.04.1", "26.04.1", "latest"])
+        (self.root / "os-release").write_text('ID=ubuntu\nVERSION_ID="26.04"\nVERSION="26.04 LTS (Resolute Raccoon)"\n')
+        result = self.run_bash("version_check_ubuntu")
+        self.success(result)
+        self.assertEqual(self.rows(result)[0][3], "update")
 
     def test_newer_non_lts_ubuntu_is_not_recommended_for_downgrade(self):
         (self.root / "os-release").write_text("ID=ubuntu\nVERSION_ID=26.10\n")
