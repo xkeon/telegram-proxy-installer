@@ -200,12 +200,11 @@ if manager_install configure; then exit 99; fi
 
     def test_wizard_back_preserves_earlier_values_and_cancel_writes_nothing(self):
         result = self.run_bash(r'''
-prepare_settings configure
-if settings_wizard <<<'dd
-new.example.com
-:back
+REQUEST[mode]=dd; prepare_settings configure
+if settings_wizard configure <<<'new.example.com
+0
 
-:cancel'; then exit 99; else test "$?" -eq 130; fi
+q'; then exit 99; else test "$?" -eq 130; fi
 printf 'chosen=%s\n' "$DD_DOMAIN"
 ''')
         self.success(result)
@@ -221,25 +220,12 @@ printf 'chosen=%s\n' "$DD_DOMAIN"
     def test_wizard_edits_reviewed_port_before_apply(self):
         result = self.run_bash(r'''
 REQUEST[mode]=dd; prepare_settings configure
-settings_wizard <<'INPUT'
-
-
-
-
-
-
-
+settings_wizard configure <<'INPUT'
 
 
 2
-3
+2
 8555
-
-
-
-
-
-
 1
 INPUT
 printf 'chosen=%s\n' "$DD_PORT"
@@ -606,25 +592,83 @@ test "$UI_LANG" = zh; test "$BACKUP_KEEP" = 7
         self.assertEqual(rows[1]["bind_ipv4"], "")
         self.assertEqual(rows[1]["state"], "not_installed")
 
-    def test_wizard_port_presets_apply_chosen_value(self):
+    def test_simple_wizard_accepts_custom_port_and_applies_once(self):
         result = self.run_bash(r'''
 REQUEST[mode]=dd; prepare_settings configure
-settings_wizard <<'INPUT'
+settings_wizard configure <<'INPUT'
 
+2053
+1
+INPUT
+test "$DD_PORT" = 2053; test "$WIZARD_APPROVED" = 1
+''')
+        self.success(result)
+        self.unchanged()
 
-:presets
-3
-
-
-
-
-
+    def test_simple_install_only_asks_for_address_and_port(self):
+        result = self.run_bash(r'''
+REQUEST[mode]=ee; prepare_settings install
+settings_wizard install <<'INPUT'
+1
+new.example.com
 
 1
 INPUT
-test "$DD_PORT" = 2053
+test "$EE_DOMAIN:$EE_PORT" = new.example.com:443
+test "$WIZARD_APPROVED" = 1
 ''')
         self.success(result)
+        self.assertNotIn("Enable BBR", result.stdout)
+        self.assertNotIn("Firewall (", result.stdout)
+        self.unchanged()
+
+    def test_apply_button_is_the_only_install_confirmation(self):
+        result = self.run_bash(r'''
+NON_INTERACTIVE=0 ASSUME_YES=0
+REQUEST[mode]=dd
+confirm_action() { echo UNEXPECTED_SECOND_CONFIRMATION; return 1; }
+manager_install configure <<'INPUT'
+
+8555
+1
+INPUT
+''')
+        self.success(result)
+        self.assertNotIn("UNEXPECTED_SECOND_CONFIRMATION", result.stdout)
+        self.assertIn("DD_PORT=8555", (self.config / "dd.env").read_text())
+
+    def test_cancel_simple_install_does_not_bootstrap_or_save(self):
+        result = self.run_bash(r'''
+NON_INTERACTIVE=0 ASSUME_YES=0
+REQUEST[mode]=ee
+manager_install install <<'INPUT'
+1
+q
+INPUT
+test "$MENU_CANCELLED" = 1
+''')
+        self.success(result)
+        self.unchanged()
+        self.assertEqual(self.commands("bootstrap.log"), [])
+        self.assertFalse(self.backups.exists())
+
+    def test_advanced_settings_return_to_review_before_application(self):
+        result = self.run_bash(r'''
+REQUEST[mode]=ee; prepare_settings configure
+settings_wizard configure <<'INPUT'
+
+
+3
+4
+203.0.113.5
+0
+1
+INPUT
+test "$PUBLIC_IPV4" = 203.0.113.5
+test "$WIZARD_APPROVED" = 1
+''')
+        self.success(result)
+        self.assertIn("203.0.113.5", result.stdout)
         self.unchanged()
 
     def test_failed_rollback_recovers_current_configuration(self):

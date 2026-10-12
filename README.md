@@ -13,23 +13,25 @@ One-click interactive installer for Telegram MTProto proxy on Ubuntu 26.04 LTS.
 
 ### Features
 - Deploy mode: `EE only` / `DD only` / `EE+DD`
-- Fronting domain: presets + manual input
-- Port: presets + manual input, conflict detection
+- HTTPS cover domain: default value, editable in advanced settings
+- Port: default value or custom input, with conflict detection
 - Multi-IP bind support
 - `systemd` managed services
 - Healthcheck / self-heal / self-update
 - Upgrade / migrate / rollback / rotate-secret (advanced)
 
 ### Terminal UI
-The menu groups services, updates, and recovery, and shows EE/DD service states and ports. In a supported terminal, use Up/Down and Enter, or type a number and press Enter; `r` refreshes status and `q` / Esc goes back or exits. Mode selectors include a Back option. With an existing deployment, the menu initially selects Healthcheck.
+The dashboard shows EE/DD service cards with their addresses, ports and service states. Six common actions use a two-column layout in terminals of at least 70×22 cells: connections, check/repair, settings/services, backups/updates, automatic care, and more settings. Advanced operations live under More settings. An empty server offers installation, importing an existing proxy, and settings. The initial selection opens connection information for an existing deployment.
+
+Use Up/Down to move between rows, Left/Right between actions, and Enter to choose. Number + Enter also works; `r` refreshes and `q` / Esc returns or exits. Common actions automatically target installed proxies, and the service/settings panels show the affected modes.
 
 Piped input, `TERM=dumb`, and very small terminals use a numbered text menu. Set `NO_COLOR` to disable colors while keeping navigation, for example `sudo env NO_COLOR=1 bash install.sh`. The header shows systemd service state; run Healthcheck for container and port diagnosis.
 
 ### Management and automation
 
-The menu now includes settings, connection links/QR, backup history, service controls, resource status, scheduled checks, and language selection. The wizard keeps current values on Enter; use `:back`, `:cancel`, or `:presets` for domain/port suggestions. Review and edit the summary before applying. Language and backup retention are saved in `/etc/telegram-proxy/preferences.env`.
+Installation asks for a proxy type, public address and port. Cover domain, bindings, NAT, BBR and firewall options stay under Advanced options. Enter keeps the current value, `0` goes back, and `q` cancels. Review addresses and ports, edit if needed, then apply once. Longer summaries remain in terminal scrollback. Language and backup retention are saved in `/etc/telegram-proxy/preferences.env`.
 
-`configure` changes domains, ports and bindings without package installation. Repeating `install` preserves existing secrets; `--reinstall` explicitly generates new ones. Changing the EE FakeTLS domain rotates its embedded secret, so clients need new links. Links are masked by default; `--show-secret` reveals them and `--qr` renders a complete QR locally with qrencode.
+`configure` changes domains, ports and bindings without package installation. Repeating `install` preserves existing secrets; `--reinstall` explicitly generates new ones. Changing the EE FakeTLS domain rotates its embedded secret, so clients need new links. Opening Connection info in the menu shows usable links, with an optional local QR. CLI links are masked by default; `--show-secret` reveals them and `--qr` renders a complete QR locally with qrencode.
 
 ```bash
 bash install.sh install --config examples/proxy.conf --dry-run --lang en
@@ -157,23 +159,29 @@ docker image inspect telegrammessenger/proxy:latest --format '{{index .RepoDiges
 
 ### 功能
 - 部署模式：`仅 EE` / `仅 DD` / `EE+DD`
-- Fronting 域名：预设 + 手动输入
-- 端口：预设 + 手动输入，冲突检测
+- HTTPS 伪装域名：使用默认值，可在高级选项修改
+- 端口：默认值或自定义输入，冲突检测
 - 支持多 IP 绑定
 - `systemd` 托管服务
 - 健康检查 / 自愈 / 脚本自更新
 - 升级 / 迁移 / 回滚 / 轮换密钥（高级）
 
 ### 终端界面
-菜单按服务、更新和恢复分组，并显示 EE/DD 服务状态与端口。在支持的终端中，用方向键和回车选择，或输入编号后回车；`r` 刷新状态，`q` / Esc 返回或退出。操作模式选择支持返回。已有部署时，首页默认选中健康检查。
+首页用卡片展示 EE/DD 的服务状态、地址和端口。至少 70×22 的终端采用双列布局，保留六个常用入口：连接信息、检查与修复、配置与运行、备份与更新、自动维护、更多设置。高级操作放在“更多设置”里；尚未安装时只显示开始安装、接管已有代理和更多设置。已有部署时默认选中连接信息。
+
+上下键切换行，左右键切换入口，回车选择；也可以输入编号后回车。`r` 刷新，`q` / Esc 返回或退出。常用操作自动识别已安装的代理，配置与运行等页面会注明操作范围。
+
+![中文终端控制台，使用示例代理数据](docs/terminal-dashboard.png)
+
+上图由实际伪终端输出渲染，地址和运行状态使用测试数据；终端背景、字体取决于本地终端设置。
 
 通过管道输入、使用 `TERM=dumb` 或窗口过小时，自动使用编号文本菜单。设置 `NO_COLOR` 可关闭颜色并保留导航，例如 `sudo env NO_COLOR=1 bash install.sh`。首页显示 systemd 服务状态；容器和端口诊断请使用健康检查。
 
 ### 管理与自动化
 
-菜单已加入修改配置、连接链接与二维码、备份历史、服务操作、资源状态、定时检查和语言切换。向导中回车保留当前值，`:back` 返回，`:cancel` 取消，`:presets` 选择常用域名或端口；执行前可以在汇总页修改。语言与备份保留数量保存到 `/etc/telegram-proxy/preferences.env`。
+安装向导先选择代理类型，然后填写公网地址和端口；伪装域名、绑定地址、NAT、BBR、防火墙放在可选的高级设置中。回车保留当前值，`0` 返回，`q` 取消。确认页保留地址和端口供核对，可以修改后一次确认执行；内容较长时保留在终端滚动记录中。语言与备份保留数量保存到 `/etc/telegram-proxy/preferences.env`。
 
-`configure` 可以修改域名、端口和绑定地址，无需重新安装软件。再次 `install` 默认保留已有密钥，`--reinstall` 才重新生成。更换 EE 的 FakeTLS 域名会轮换嵌入域名的密钥，需要给客户端更新链接。连接链接默认隐藏密钥，`--show-secret` 显示完整链接，`--qr` 使用 qrencode 在本机生成完整二维码。
+`configure` 可以修改域名、端口和绑定地址，无需重新安装软件。再次 `install` 默认保留已有密钥，`--reinstall` 才重新生成。更换 EE 的 FakeTLS 域名会轮换嵌入域名的密钥，需要给客户端更新链接。菜单的“连接信息”直接显示可用链接，可以继续显示本地二维码；命令行链接默认隐藏密钥，`--show-secret` 显示完整链接，`--qr` 使用 qrencode 在本机生成完整二维码。
 
 ```bash
 bash install.sh install --config examples/proxy.conf --dry-run --lang zh
@@ -301,23 +309,25 @@ docker image inspect telegrammessenger/proxy:latest --format '{{index .RepoDiges
 
 ### 기능
 - 배포 모드: `EE만` / `DD만` / `EE+DD`
-- Fronting 도메인: 프리셋 + 수동 입력
-- 포트: 프리셋 + 수동 입력, 충돌 감지
+- HTTPS 위장 도메인: 기본값 또는 고급 설정에서 변경
+- 포트: 기본값 또는 직접 입력, 충돌 감지
 - 멀티 IP 바인드 지원
 - `systemd` 서비스 관리
 - 상태 점검 / 자동 복구 / 스크립트 업데이트
 - 업그레이드 / 마이그레이션 / 롤백 / 시크릿 교체 (고급)
 
 ### 터미널 UI
-메뉴는 서비스, 업데이트, 복구 작업을 그룹으로 표시하고 EE/DD 서비스 상태와 포트를 보여 줍니다. 지원되는 터미널에서는 방향키와 Enter 또는 번호와 Enter를 사용합니다. `r`은 상태 새로 고침, `q` / Esc는 뒤로 또는 종료입니다. 모드 선택에서 뒤로 돌아갈 수 있으며, 기존 배포가 있으면 상태 점검이 기본 선택됩니다.
+대시보드는 EE/DD 카드에 서비스 상태, 주소 및 포트를 표시합니다. 70×22 이상의 터미널에서는 연결 정보, 점검/복구, 설정/서비스, 백업/업데이트, 자동 관리, 추가 설정의 여섯 항목을 두 열로 배치합니다. 고급 기능은 추가 설정에 있으며, 설치 전에는 설치, 기존 프록시 가져오기, 설정만 표시합니다. 기존 배포의 기본 선택은 연결 정보입니다.
+
+위/아래로 행을 이동하고 왼쪽/오른쪽으로 항목을 이동한 뒤 Enter로 선택합니다. 번호와 Enter도 지원합니다. `r`은 새로 고침, `q` / Esc는 뒤로 또는 종료입니다. 일반 작업은 설치된 프록시를 자동 선택하며 설정/서비스 화면에 적용 대상을 표시합니다.
 
 파이프 입력, `TERM=dumb`, 아주 작은 창에서는 번호 메뉴를 사용합니다. `sudo env NO_COLOR=1 bash install.sh`로 색상을 끄고 탐색은 유지할 수 있습니다. 헤더는 systemd 서비스 상태이며, 컨테이너와 포트 진단은 상태 점검을 사용하세요.
 
 ### 관리 및 자동화
 
-메뉴에서 설정, 링크/로컬 QR, 백업 기록, 서비스 제어, 리소스, 예약 점검 및 언어를 선택할 수 있습니다. 마법사는 Enter로 현재 값을 유지하며 `:back`, `:cancel`, `:presets`를 지원합니다. 적용 전 요약을 수정할 수 있고 언어/백업 보관 개수는 저장됩니다.
+설치는 종류, 공개 주소 및 포트만 묻습니다. 위장 도메인, 바인딩, NAT, BBR 및 방화벽은 선택 사항인 고급 설정에 있습니다. Enter는 현재 값을 유지하고 `0`은 이전 단계, `q`는 취소입니다. 주소와 포트를 확인하거나 수정한 뒤 한 번 적용합니다. 긴 요약은 스크롤 기록에 유지됩니다. 언어와 백업 보관 개수는 저장됩니다.
 
-`configure`는 패키지를 다시 설치하지 않고 설정을 바꿉니다. 반복 설치는 기존 시크릿을 유지하고 `--reinstall`은 새 시크릿을 생성합니다. EE FakeTLS 도메인 변경 시 링크도 바뀝니다. 링크는 기본적으로 숨기며 `--show-secret` 또는 `--qr`로 표시합니다.
+`configure`는 패키지를 다시 설치하지 않고 설정을 바꿉니다. 반복 설치는 기존 시크릿을 유지하고 `--reinstall`은 새 시크릿을 생성합니다. EE FakeTLS 도메인 변경 시 링크도 바뀝니다. 메뉴의 연결 정보는 사용 가능한 링크와 선택 가능한 로컬 QR을 표시합니다. CLI 링크는 기본적으로 숨기며 `--show-secret` 또는 `--qr`로 표시합니다.
 
 ```bash
 bash install.sh install --config examples/proxy.conf --dry-run --lang ko
@@ -436,23 +446,25 @@ docker image inspect telegrammessenger/proxy:latest --format '{{index .RepoDiges
 
 ### 機能
 - デプロイモード: `EEのみ` / `DDのみ` / `EE+DD`
-- fronting ドメイン: プリセット + 手動入力
-- ポート: プリセット + 手動入力、競合検出
+- HTTPS 偽装ドメイン: 既定値、または高度な設定から変更
+- ポート: 既定値または入力、競合検出
 - マルチIPバインド対応
 - `systemd` サービス管理
 - ヘルスチェック / 自動復旧 / スクリプト自己更新
 - アップグレード / 移行 / ロールバック / シークレット更新（上級）
 
 ### ターミナル UI
-メニューはサービス、更新、復元に分類され、EE/DD のサービス状態とポートを表示します。対応端末では方向キーと Enter、または番号と Enter で選択します。`r` で状態を更新し、`q` / Esc で戻るか終了します。モード選択から戻ることができ、既存の構成がある場合はヘルスチェックが初期選択になります。
+ダッシュボードは EE/DD のカードにサービス状態、アドレス、ポートを表示します。70×22 以上の端末では接続情報、点検/修復、設定/サービス、バックアップ/更新、自動メンテナンス、その他の設定の六項目を二列に表示します。高度な操作はその他の設定にまとめ、未設定時は設定開始、既存プロキシの移行、設定だけを表示します。既存の構成では接続情報が初期選択です。
+
+上下キーで行、左右キーで項目を移動し、Enter で選択します。番号と Enter も使えます。`r` は更新、`q` / Esc は戻るか終了です。通常の操作は設定済みのプロキシを自動選択し、設定/サービス画面に対象を表示します。
 
 パイプ入力、`TERM=dumb`、非常に小さいウィンドウでは番号メニューになります。`sudo env NO_COLOR=1 bash install.sh` で色を無効にして操作を続けられます。ヘッダーは systemd サービスの状態です。コンテナとポートの診断にはヘルスチェックを使用してください。
 
 ### 管理と自動化
 
-メニューから設定、リンク/ローカル QR、バックアップ履歴、サービス操作、リソース、定期点検、言語を選択できます。ウィザードは Enter で現在値を保持し、`:back`、`:cancel`、`:presets` に対応します。適用前の要約を編集でき、言語とバックアップ保持数を保存します。
+設定では種類、公開アドレス、ポートを入力します。偽装ドメイン、バインド、NAT、BBR、ファイアウォールは任意の高度な設定にまとめています。Enter で現在値を保持し、`0` で前へ、`q` で取消します。アドレスとポートを確認・修正して一度適用します。長い要約はスクロール履歴に保持します。言語とバックアップ保持数を保存します。
 
-`configure` はパッケージを再インストールせず設定を変更します。再度のインストールは既存シークレットを保持し、`--reinstall` で新規生成します。EE FakeTLS ドメイン変更時にはリンクも変わります。リンクは通常非表示、`--show-secret` または `--qr` で表示します。
+`configure` はパッケージを再インストールせず設定を変更します。再度のインストールは既存シークレットを保持し、`--reinstall` で新規生成します。EE FakeTLS ドメイン変更時にはリンクも変わります。メニューの接続情報は利用可能なリンクと任意のローカル QR を表示します。CLI リンクは通常非表示、`--show-secret` または `--qr` で表示します。
 
 ```bash
 bash install.sh install --config examples/proxy.conf --dry-run --lang ja
@@ -573,7 +585,8 @@ Run these checks from the repository root with Bash, ShellCheck 0.10.0, shfmt 3.
 在仓库根目录运行以下检查，需要 Bash、ShellCheck 0.10.0、shfmt 3.8.0 和 Python 3：
 
 ```bash
-bash -n install.sh bootstrap.sh
+bash -n install.sh
+bash -n bootstrap.sh
 shellcheck -x -a install.sh bootstrap.sh
 shfmt -d -i 2 -ci -bn bootstrap.sh install.sh lib/*.sh
 python3 -B -m unittest discover -s tests -v

@@ -140,70 +140,6 @@ settings_summary() {
   if [[ -n "$EE_SECRET" && -n "$old_front" && "$old_front" != "$FRONT_DOMAIN" ]]; then t secret_changed; fi
 }
 
-settings_wizard() {
-  local step=0 field="" value="" choice="" position=0
-  local -a fields=() options=()
-  while true; do
-    mapfile -t fields < <(settings_fields)
-    if ((step >= ${#fields[@]})); then
-      set_mode_flags "$INSTALL_MODE" || return 1
-      settings_summary
-      ui_select choice review wizard 0 1:apply 2:edit 0:cancel || return 130
-      case "$choice" in
-        0) return 130 ;;
-        1) validate_settings && return 0 ;;
-        2)
-          options=() position=0
-          for field in "${fields[@]}"; do
-            position=$((position + 1))
-            options+=("${position}:@$(t "$(field_label "$field")"): ${!field:--}")
-          done
-          ui_select choice edit wizard 0 "${options[@]}" 0:ui_back || return 130
-          if [[ "$choice" != 0 ]]; then step=$((choice - 1)); fi
-          continue
-          ;;
-      esac
-      step=0
-      continue
-    fi
-    field="${fields[step]}"
-    if [[ "$field" == INSTALL_MODE ]]; then t mode_help; fi
-    printf '\n[%s/%s] %s [%s]\n' "$((step + 1))" "${#fields[@]}" "$(t "$(field_label "$field")")" "${!field:--}"
-    t wizard_hint
-    if [[ "$field" == FRONT_DOMAIN || "$field" == *_PORT ]]; then t wizard_presets; fi
-    read -r -p '> ' value || return 130
-    case "$value" in
-      :presets)
-        options=()
-        if [[ "$field" == FRONT_DOMAIN ]]; then
-          options=(1:@www.cloudflare.com 2:@www.microsoft.com 3:@www.amazon.com)
-        elif [[ "$field" == *_PORT ]]; then options=(1:@443 2:@8443 3:@2053 4:@2083); fi
-        ((${#options[@]})) || {
-          t invalid
-          continue
-        }
-        ui_select choice edit wizard 0 "${options[@]}" 0:ui_back || return 130
-        [[ "$choice" != 0 ]] || continue
-        value="${options[choice - 1]#*:@}"
-        ;;
-      :cancel) return 130 ;;
-      :back)
-        if ((step > 0)); then step=$((step - 1)); fi
-        continue
-        ;;
-      "") value="${!field}" ;;
-      -) value="" ;;
-    esac
-    if ! valid_field "$field" "$value"; then
-      t invalid
-      continue
-    fi
-    if [[ "$field" == *_PORT ]]; then value="$(normalize_port "$value")"; fi
-    printf -v "$field" '%s' "$value"
-    step=$((step + 1))
-  done
-}
-
 managed_socket_owner() {
   local mode="$1" port="$2" address="$3" family="$4" container=""
   container="$([[ "$mode" == ee ]] && echo "$EE_CONTAINER_NAME" || echo "$DD_CONTAINER_NAME")"
@@ -383,22 +319,26 @@ apply_installation() {
 
 manager_install() {
   local purpose="${1:-install}" backup="" rc=0
+  WIZARD_APPROVED=0
   prepare_settings "$purpose" || return 1
   if [[ "$DRY_RUN" -eq 0 ]]; then
     preflight_checks || return 1
     if [[ "$NON_INTERACTIVE" -eq 0 ]]; then
-      settings_wizard || rc=$?
-      [[ "$rc" -ne 130 ]] || return 0
+      settings_wizard "$purpose" || rc=$?
+      if [[ "$rc" -eq 130 ]]; then
+        MENU_CANCELLED=1
+        return 0
+      fi
       [[ "$rc" -eq 0 ]] || return "$rc"
     fi
   fi
   validate_settings || return 1
-  settings_summary
+  if [[ "$WIZARD_APPROVED" -ne 1 ]]; then settings_summary; fi
   if [[ "$DRY_RUN" -eq 1 ]]; then
     t no_changes
     return 0
   fi
-  confirm_action || return 1
+  if [[ "$WIZARD_APPROVED" -ne 1 ]]; then confirm_action || return 1; fi
   if [[ "$purpose" == install ]]; then bootstrap_installer || return 1; fi
   validate_network_settings || return 1
   if [[ "$DEPLOY_EE" -eq 1 ]]; then docker pull "$MTG_IMAGE" || return 1; fi

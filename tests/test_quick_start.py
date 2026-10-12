@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parents[1]
-MODULES = ("cli", "installer", "management", "menu", "messages", "migration", "operations")
+MODULES = ("cli", "installer", "management", "menu", "messages", "migration", "operations", "terminal", "setup-ui")
 
 
 class BootstrapTests(unittest.TestCase):
