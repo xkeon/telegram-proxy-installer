@@ -8,6 +8,30 @@ extra_translation() {
     return 0
   fi
   case "$key" in
+    versions_title) texts=('Version check' '版本检查' '버전 점검' 'バージョン点検') ;;
+    versions_checking) texts=('Checking versions… parallel queries, about 15 seconds at most.' '正在检查版本…并行查询，通常最多约 15 秒。' '버전 확인 중… 병렬 조회, 최대 약 15초.' 'バージョンを確認中…並列照会、最大約15秒。') ;;
+    versions_current) texts=('Current' '当前' '현재' '現在') ;;
+    versions_latest) texts=('Latest candidate' '最新候选' '최신 후보' '最新候補') ;;
+    versions_updates) texts=('updates/differences' '项更新/差异' '업데이트/차이' '件の更新/差分') ;;
+    versions_unknown) texts=('unconfirmed' '项未确认' '미확인' '件未確認') ;;
+    versions_missing) texts=('not installed' '项未安装' '미설치' '件未導入') ;;
+    versions_packages) texts=('System packages' '系统软件包' '시스템 패키지' 'システムパッケージ') ;;
+    versions_local_changes) texts=('local changes' '本地修改' '로컬 변경' 'ローカル変更') ;;
+    versions_sources) texts=('Sources: GitHub main; Ubuntu LTS; EE :2 / DD :latest; refreshed APT repositories.' '来源：GitHub main、Ubuntu LTS、EE :2 / DD :latest、刷新后的 APT 仓库。' '출처: GitHub main, Ubuntu LTS, EE :2 / DD :latest, 갱신된 APT 저장소.' '取得元: GitHub main、Ubuntu LTS、EE :2 / DD :latest、更新した APT リポジトリ。') ;;
+    versions_update_hint) texts=('Proxy/script updates: Backups & updates. OS/packages: use the Ubuntu update tools after reviewing the list.' '代理或脚本更新：备份与更新。系统与软件包：核对列表后使用 Ubuntu 更新工具。' '프록시/스크립트: 백업 및 업데이트. OS/패키지: 목록 확인 후 Ubuntu 도구 사용.' 'プロキシ/スクリプト: バックアップと更新。OS/パッケージ: 一覧確認後 Ubuntu の更新ツールを使用。') ;;
+    versions_unknown_hint) texts=('Unconfirmed means unavailable metadata, a custom image, or a failed query; it does not mean latest.' '未确认表示查询失败、元数据缺失或使用自定义镜像，不能据此判断已是最新。' '미확인은 조회 실패, 메타데이터 누락 또는 사용자 이미지이며 최신이라는 뜻이 아닙니다.' '未確認は照会失敗、情報不足、独自イメージなどです。最新版という意味ではありません。') ;;
+    versions_refresh_hint) texts=('Enter: back · r + Enter: check again' '回车返回 · r + 回车重新检查' 'Enter: 뒤로 · r + Enter: 재점검' 'Enter: 戻る · r + Enter: 再点検') ;;
+    version_script) texts=('Management script' '管理脚本' '관리 스크립트' '管理スクリプト') ;;
+    version_ubuntu) texts=('Ubuntu LTS' 'Ubuntu LTS' 'Ubuntu LTS' 'Ubuntu LTS') ;;
+    version_ee) texts=('EE / mtg (2.x)' 'EE / mtg（2.x）' 'EE / mtg (2.x)' 'EE / mtg（2.x）') ;;
+    version_dd) texts=('DD / official proxy' 'DD / 官方代理' 'DD / 공식 프록시' 'DD / 公式プロキシ') ;;
+    version_docker) texts=('Docker (unmanaged package)' 'Docker（未由 APT 托管）' 'Docker (APT 외 설치)' 'Docker（APT 管理外）') ;;
+    version_state_latest) texts=('Up to date' '已匹配最新候选' '최신 후보와 일치' '最新候補と一致') ;;
+    version_state_update) texts=('Update / difference' '有更新 / 差异' '업데이트 / 차이' '更新 / 差分あり') ;;
+    version_state_unknown) texts=('Unconfirmed' '未确认' '미확인' '未確認') ;;
+    version_state_missing) texts=('Not installed' '未安装' '미설치' '未導入') ;;
+    version_state_skip) texts=('Not applicable' '不适用' '해당 없음' '対象外') ;;
+    version_state_newer) texts=('Newer than candidate' '高于仓库候选' '후보보다 새 버전' '候補より新しい') ;;
     verify_pass) texts=('PASS' '通过' '정상' '成功') ;;
     verify_fail) texts=('FAIL' '失败' '실패' '失敗') ;;
     verify_warn) texts=('WARNING' '警告' '경고' '警告') ;;
@@ -58,7 +82,7 @@ extra_translation() {
     hint_home_config) texts=('Address, port, restart and logs' '修改地址、端口或重启' '주소, 포트, 재시작 및 로그' 'アドレス、ポート、再起動') ;;
     hint_home_updates) texts=('Upgrade or restore a backup' '更新镜像或恢复备份' '업데이트 또는 백업 복원' '更新やバックアップの復元') ;;
     hint_home_monitor) texts=('Scheduled checks and repairs' '开启定时检查与修复' '예약 점검 및 복구' '定期的な点検と修復') ;;
-    hint_home_more) texts=('Language, help and advanced tools' '语言、帮助与高级操作' '언어, 도움말 및 고급 기능' '言語、ヘルプ、高度な操作') ;;
+    hint_home_more) texts=('Language, versions and advanced tools' '语言、版本与高级操作' '언어, 버전 및 고급 기능' '言語、バージョン、高度な操作') ;;
     hint_home_install) texts=('Address and port are all you need' '只需填写地址和端口' '주소와 포트만 입력' 'アドレスとポートを入力') ;;
     hint_home_migrate) texts=('Keep an existing proxy'\''s secret' '保留已有代理的密钥' '기존 프록시의 키 유지' '既存のキーを保持') ;;
     choose_proxy) texts=('Choose a proxy' '选择要操作的代理' '프록시 선택' 'プロキシを選択') ;;

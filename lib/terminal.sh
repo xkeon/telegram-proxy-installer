@@ -202,7 +202,7 @@ ui_render() {
   width=$((UI_WIDTH - 4))
   if ((width < 12)); then width=12; fi
   UI_COLUMNS=1
-  if [[ "$kind" == main && "$UI_NAVIGATION" -eq 1 ]] && ((UI_WIDTH >= 70 && UI_HEIGHT >= 22 && ${#items[@]} == 7)); then UI_COLUMNS=2; fi
+  if [[ "$kind" == main && "$UI_NAVIGATION" -eq 1 ]] && ((UI_WIDTH >= 70 && UI_HEIGHT >= 22 + VERSION_CHECKED && ${#items[@]} == 7)); then UI_COLUMNS=2; fi
   if [[ "$UI_NAVIGATION" -eq 1 ]]; then printf '\033[H\033[2J'; fi
   echo
   printf '  %sTELEGRAM PROXY%s\n' "$UI_ACCENT" "$UI_RESET"
@@ -210,6 +210,13 @@ ui_render() {
   ui_cell "${UI_BREADCRUMB:+${UI_BREADCRUMB} / }$(t "$title")" "$width" "$UI_ACCENT"
   echo
   if [[ "$kind" == main ]]; then ui_dashboard; fi
+  if [[ "$kind" == main && "$VERSION_CHECKED" -eq 1 ]]; then
+    local version_style="$UI_WARN"
+    if [[ "$VERSION_UPDATES" -eq 0 && "$VERSION_UNKNOWN" -eq 0 && "$VERSION_MISSING" -eq 0 ]]; then version_style="$UI_OK"; fi
+    printf '  '
+    ui_cell "$(version_banner)" "$width" "$version_style"
+    echo
+  fi
   if [[ "$kind" == panel && -n "$UI_SCOPE" && ("$title" == home_config || "$title" == home_updates || "$title" == home_monitor) ]]; then
     printf '  '
     ui_cell "$(t managed_scope): $UI_SCOPE" "$width" "$UI_MUTED"
@@ -248,6 +255,7 @@ ui_render() {
     echo
   else
     limit=$((UI_HEIGHT - 11))
+    if [[ "$kind" == main && "$VERSION_CHECKED" -eq 1 ]]; then limit=$((limit - 1)); fi
     if [[ "$kind" != main ]]; then limit=$((UI_HEIGHT - 8)); fi
     if ((limit < 3)); then limit=3; fi
     if [[ "$UI_NAVIGATION" -eq 1 ]]; then

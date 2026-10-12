@@ -227,20 +227,33 @@ menu_more() {
   local choice=""
   while true; do
     UI_BREADCRUMB="$(t menu_title)"
-    ui_select choice home_more panel 0 1:menu_language 2:menu_help 3:advanced_actions 0:ui_back || return 0
+    ui_select choice home_more panel 0 1:menu_language 2:menu_help 3:advanced_actions 4:versions_title 0:ui_back || return 0
     case "$choice" in
       0) return 0 ;;
       1) select_language || continue ;;
       2) menu_run cli_usage ;;
       3) menu_advanced ;;
+      4) menu_versions ;;
     esac
   done
+}
+
+menu_versions() {
+  local choice=""
+  version_report
+  read -r -p "$(t versions_refresh_hint) " choice || return 0
+  if [[ "$choice" == r || "$choice" == R ]]; then
+    version_check_run
+    version_report
+    pause_menu
+  fi
 }
 
 manager_menu() {
   local choice="" installed=0
   local -a options=()
   if ! load_preferences; then select_language || return 0; fi
+  version_check_run
   while true; do
     menu_reset_request
     UI_BREADCRUMB=""

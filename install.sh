@@ -2535,6 +2535,8 @@ source "$INSTALLER_DIR/lib/migration.sh"
 source "$INSTALLER_DIR/lib/cli.sh"
 # shellcheck source=lib/verification.sh
 source "$INSTALLER_DIR/lib/verification.sh"
+# shellcheck source=lib/versions.sh
+source "$INSTALLER_DIR/lib/versions.sh"
 # shellcheck source=lib/setup-ui.sh
 source "$INSTALLER_DIR/lib/setup-ui.sh"
 # shellcheck source=lib/terminal.sh

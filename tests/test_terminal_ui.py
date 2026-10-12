@@ -45,6 +45,7 @@ systemctl() {{
   printf '%s\\n' "$*" >> {shlex.quote(str(self.root / 'service-calls'))}
   [[ "${{@: -1}}" == "$EE_SERVICE_NAME" ]]
 }}
+version_check_run() {{ return 0; }}
 """
 
     def environment(self, **extra):

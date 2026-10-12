@@ -21,13 +21,15 @@ One-click interactive installer for Telegram MTProto proxy on Ubuntu 26.04 LTS.
 - Upgrade / migrate / rollback / rotate-secret (advanced)
 
 ### Terminal UI
-The dashboard shows EE/DD service cards with their addresses, ports and service states. Six common actions use a two-column layout in terminals of at least 70×22 cells: connections, check/repair, settings/services, backups/updates, automatic care, and more settings. Advanced operations live under More settings. An empty server offers installation, importing an existing proxy, and settings. The initial selection opens connection information for an existing deployment.
+The dashboard shows EE/DD service cards with their addresses, ports and service states. Six common actions use a two-column layout in terminals of at least 70×23 cells: connections, check/repair, settings/services, backups/updates, automatic care, and more settings. Advanced operations live under More settings. An empty server offers installation, importing an existing proxy, and settings. The initial selection opens connection information for an existing deployment.
 
 Use Up/Down to move between rows, Left/Right between actions, and Enter to choose. Number + Enter also works; `r` refreshes and `q` / Esc returns or exits. Common actions automatically target installed proxies, and the service/settings panels show the affected modes.
 
 Piped input, `TERM=dumb`, and very small terminals use a numbered text menu. Set `NO_COLOR` to disable colors while keeping navigation, for example `sudo env NO_COLOR=1 bash install.sh`. The header shows systemd service state; run Healthcheck for container and port diagnosis.
 
 ### Management and automation
+
+Opening the menu automatically checks the script against GitHub `main`, the latest supported Ubuntu LTS, EE `:2` and DD `:latest` registry digests, and the installed runtime packages against freshly updated APT candidates. Independent queries run together with timeouts, normally within about 15 seconds. The dashboard shows update/difference, unconfirmed and missing counts. More settings → Version check shows current/candidate versions and can recheck; `sudo bash install.sh versions --lang en` provides the same report. Checking refreshes package indexes, and never upgrades packages/images or restarts services. A failed APT refresh does not use stale indexes to claim a package is latest. Custom images, missing metadata and unavailable sources show Unconfirmed. Image tracking channels and configured APT repositories define the candidate versions.
 
 Installation asks for a proxy type, public address and port. Cover domain, bindings, NAT, BBR and firewall options stay under Advanced options. Enter keeps the current value, `0` goes back, and `q` cancels. Review addresses and ports, edit if needed, then apply once. Longer summaries remain in terminal scrollback. Language and backup retention are saved in `/etc/telegram-proxy/preferences.env`.
 
@@ -171,7 +173,7 @@ docker image inspect telegrammessenger/proxy:latest --format '{{index .RepoDiges
 - 升级 / 迁移 / 回滚 / 轮换密钥（高级）
 
 ### 终端界面
-首页用卡片展示 EE/DD 的服务状态、地址和端口。至少 70×22 的终端采用双列布局，保留六个常用入口：连接信息、检查与修复、配置与运行、备份与更新、自动维护、更多设置。高级操作放在“更多设置”里；尚未安装时只显示开始安装、接管已有代理和更多设置。已有部署时默认选中连接信息。
+首页用卡片展示 EE/DD 的服务状态、地址和端口。至少 70×23 的终端采用双列布局，保留六个常用入口：连接信息、检查与修复、配置与运行、备份与更新、自动维护、更多设置。高级操作放在“更多设置”里；尚未安装时只显示开始安装、接管已有代理和更多设置。已有部署时默认选中连接信息。
 
 上下键切换行，左右键切换入口，回车选择；也可以输入编号后回车。`r` 刷新，`q` / Esc 返回或退出。常用操作自动识别已安装的代理，配置与运行等页面会注明操作范围。
 
@@ -182,6 +184,8 @@ docker image inspect telegrammessenger/proxy:latest --format '{{index .RepoDiges
 通过管道输入、使用 `TERM=dumb` 或窗口过小时，自动使用编号文本菜单。设置 `NO_COLOR` 可关闭颜色并保留导航，例如 `sudo env NO_COLOR=1 bash install.sh`。首页显示 systemd 服务状态；容器和端口诊断请使用健康检查。
 
 ### 管理与自动化
+
+打开菜单时会自动检查：脚本是否与 GitHub `main` 一致、Ubuntu 是否为最新受支持 LTS、EE `:2` / DD `:latest` 的官方镜像摘要，以及运行依赖的当前版本与刷新后 APT 仓库候选版本。查询并行执行并设超时，通常约 15 秒以内完成。首页显示更新/差异、未确认、未安装数量；“更多设置 → 版本检查”可以查看当前/候选版本并重新查询，也可执行 `sudo bash install.sh versions --lang zh`。检查会刷新软件包索引，不会自动升级软件、镜像或重启服务；刷新失败时不会用旧索引宣称已经最新。自定义镜像、缺少元数据、来源不可达均显示“未确认”。“最新候选”以指定镜像通道及已配置 APT 软件源为准。
 
 安装向导先选择代理类型，然后填写公网地址和端口；伪装域名、绑定地址、NAT、BBR、防火墙放在可选的高级设置中。回车保留当前值，`0` 返回，`q` 取消。确认页保留地址和端口供核对，可以修改后一次确认执行；内容较长时保留在终端滚动记录中。语言与备份保留数量保存到 `/etc/telegram-proxy/preferences.env`。
 
@@ -325,13 +329,15 @@ docker image inspect telegrammessenger/proxy:latest --format '{{index .RepoDiges
 - 업그레이드 / 마이그레이션 / 롤백 / 시크릿 교체 (고급)
 
 ### 터미널 UI
-대시보드는 EE/DD 카드에 서비스 상태, 주소 및 포트를 표시합니다. 70×22 이상의 터미널에서는 연결 정보, 점검/복구, 설정/서비스, 백업/업데이트, 자동 관리, 추가 설정의 여섯 항목을 두 열로 배치합니다. 고급 기능은 추가 설정에 있으며, 설치 전에는 설치, 기존 프록시 가져오기, 설정만 표시합니다. 기존 배포의 기본 선택은 연결 정보입니다.
+대시보드는 EE/DD 카드에 서비스 상태, 주소 및 포트를 표시합니다. 70×23 이상의 터미널에서는 연결 정보, 점검/복구, 설정/서비스, 백업/업데이트, 자동 관리, 추가 설정의 여섯 항목을 두 열로 배치합니다. 고급 기능은 추가 설정에 있으며, 설치 전에는 설치, 기존 프록시 가져오기, 설정만 표시합니다. 기존 배포의 기본 선택은 연결 정보입니다.
 
 위/아래로 행을 이동하고 왼쪽/오른쪽으로 항목을 이동한 뒤 Enter로 선택합니다. 번호와 Enter도 지원합니다. `r`은 새로 고침, `q` / Esc는 뒤로 또는 종료입니다. 일반 작업은 설치된 프록시를 자동 선택하며 설정/서비스 화면에 적용 대상을 표시합니다.
 
 파이프 입력, `TERM=dumb`, 아주 작은 창에서는 번호 메뉴를 사용합니다. `sudo env NO_COLOR=1 bash install.sh`로 색상을 끄고 탐색은 유지할 수 있습니다. 헤더는 systemd 서비스 상태이며, 컨테이너와 포트 진단은 상태 점검을 사용하세요.
 
 ### 관리 및 자동화
+
+메뉴 시작 시 GitHub `main`, 지원되는 최신 Ubuntu LTS, EE `:2` / DD `:latest` 이미지 다이제스트와 새로 갱신한 APT 후보 패키지를 자동 비교합니다. 조회는 병렬 실행하고 시간 제한을 두며 보통 약 15초 이내에 완료됩니다. 대시보드에 업데이트/차이, 미확인 및 미설치 개수를 표시합니다. 추가 설정 → 버전 점검에서 상세 확인/재점검하거나 `sudo bash install.sh versions --lang ko`를 사용합니다. 패키지 인덱스만 갱신하며 자동 업그레이드나 서비스 재시작은 없습니다. 갱신 실패 시 오래된 인덱스로 최신이라고 표시하지 않습니다. 사용자 이미지, 정보 부족, 접속 실패는 미확인입니다. 최신 후보는 지정한 이미지 채널과 APT 저장소 기준입니다.
 
 설치는 종류, 공개 주소 및 포트만 묻습니다. 위장 도메인, 바인딩, NAT, BBR 및 방화벽은 선택 사항인 고급 설정에 있습니다. Enter는 현재 값을 유지하고 `0`은 이전 단계, `q`는 취소입니다. 주소와 포트를 확인하거나 수정한 뒤 한 번 적용합니다. 긴 요약은 스크롤 기록에 유지됩니다. 언어와 백업 보관 개수는 저장됩니다.
 
@@ -466,13 +472,15 @@ docker image inspect telegrammessenger/proxy:latest --format '{{index .RepoDiges
 - アップグレード / 移行 / ロールバック / シークレット更新（上級）
 
 ### ターミナル UI
-ダッシュボードは EE/DD のカードにサービス状態、アドレス、ポートを表示します。70×22 以上の端末では接続情報、点検/修復、設定/サービス、バックアップ/更新、自動メンテナンス、その他の設定の六項目を二列に表示します。高度な操作はその他の設定にまとめ、未設定時は設定開始、既存プロキシの移行、設定だけを表示します。既存の構成では接続情報が初期選択です。
+ダッシュボードは EE/DD のカードにサービス状態、アドレス、ポートを表示します。70×23 以上の端末では接続情報、点検/修復、設定/サービス、バックアップ/更新、自動メンテナンス、その他の設定の六項目を二列に表示します。高度な操作はその他の設定にまとめ、未設定時は設定開始、既存プロキシの移行、設定だけを表示します。既存の構成では接続情報が初期選択です。
 
 上下キーで行、左右キーで項目を移動し、Enter で選択します。番号と Enter も使えます。`r` は更新、`q` / Esc は戻るか終了です。通常の操作は設定済みのプロキシを自動選択し、設定/サービス画面に対象を表示します。
 
 パイプ入力、`TERM=dumb`、非常に小さいウィンドウでは番号メニューになります。`sudo env NO_COLOR=1 bash install.sh` で色を無効にして操作を続けられます。ヘッダーは systemd サービスの状態です。コンテナとポートの診断にはヘルスチェックを使用してください。
 
 ### 管理と自動化
+
+メニュー起動時に GitHub `main`、サポート中の最新 Ubuntu LTS、EE `:2` / DD `:latest` のダイジェスト、更新した APT の候補バージョンを自動比較します。照会は並列実行しタイムアウトを設け、通常約15秒以内に完了します。ダッシュボードに更新/差分、未確認、未導入の件数を表示します。その他の設定 → バージョン点検で詳細確認・再点検でき、`sudo bash install.sh versions --lang ja` も使えます。パッケージ索引だけを更新し、自動アップグレードやサービス再起動は行いません。索引更新失敗時は古い情報を最新版と表示せず、独自イメージ、情報不足、接続不可は未確認になります。最新候補は指定したイメージのチャンネルと APT リポジトリが基準です。
 
 設定では種類、公開アドレス、ポートを入力します。偽装ドメイン、バインド、NAT、BBR、ファイアウォールは任意の高度な設定にまとめています。Enter で現在値を保持し、`0` で前へ、`q` で取消します。アドレスとポートを確認・修正して一度適用します。長い要約はスクロール履歴に保持します。言語とバックアップ保持数を保存します。
 
@@ -596,9 +604,9 @@ docker image inspect telegrammessenger/proxy:latest --format '{{index .RepoDiges
 
 ## Development / 开发与验证
 
-Run these checks from the repository root with Bash, ShellCheck 0.10.0, shfmt 3.8.0, and Python 3.11+:
+CI and the Ubuntu 26.04 development image use ShellCheck 0.11.0 and shfmt 3.12.0. Run these checks from the repository root with Bash and Python 3.11+; the host fallback tools (ShellCheck 0.10.0 / shfmt 3.8.0) also support these checks:
 
-在仓库根目录运行以下检查，需要 Bash、ShellCheck 0.10.0、shfmt 3.8.0 和 Python 3.11+：
+CI 与 Ubuntu 26.04 开发镜像使用 ShellCheck 0.11.0、shfmt 3.12.0。在仓库根目录执行以下检查，需要 Bash 与 Python 3.11+；宿主机备用工具 ShellCheck 0.10.0 / shfmt 3.8.0 也可执行这些检查：
 
 ```bash
 bash -n install.sh
@@ -608,6 +616,6 @@ shfmt -d -i 2 -ci -bn bootstrap.sh install.sh lib/*.sh
 python3 -B -m unittest discover -s tests -v
 ```
 
-Regression tests use temporary configuration files, mock host mutations and exercise real pseudo-terminals. The standalone bootstrap is checked for missing Git, failed downloads/updates, partial checkout cleanup, existing local changes and language forwarding. They cover installation/configuration/rotation/migration recovery, backup retention, CLI validation, redacted reports, NAT, bounded watchdog behavior and terminal navigation. Run in the Ubuntu 26.04 development image with root, qrencode and /usr/bin/docker to also execute the real systemd parser, offline QR and private preference checks; these three checks are explicitly skipped on hosts lacking those capabilities. TCP verification tests also exercise real IPv4/IPv6 loopback listeners, closed ports, misleading listener/mapping metadata, itemized warnings and recovery after a refused connection. IPv6 loopback tests explicitly skip when that capability is unavailable. Real proxy deployment still requires a VPS meeting the requirements above.
+Regression tests use temporary configuration files, mock host mutations and exercise real pseudo-terminals. The standalone bootstrap is checked for missing Git, failed downloads/updates, partial checkout cleanup, existing local changes and language forwarding. They cover installation/configuration/rotation/migration recovery, backup retention, CLI validation, redacted reports, NAT, bounded watchdog behavior and terminal navigation. Run in the Ubuntu 26.04 development image with root, qrencode and /usr/bin/docker to also execute the real systemd parser, offline QR and private preference checks; these three checks are explicitly skipped on hosts lacking those capabilities. Version tests cover digest comparisons, LTS metadata parsing, APT candidate epochs, stale/failed queries, parallel startup, local changes and offline menu exit. TCP verification tests also exercise real IPv4/IPv6 loopback listeners, closed ports, misleading listener/mapping metadata, itemized warnings and recovery after a refused connection. IPv6 loopback tests explicitly skip when that capability is unavailable. Real proxy deployment still requires a VPS meeting the requirements above.
 
-回归测试使用临时配置、模拟主机变更并通过真实伪终端验证交互，覆盖安装/配置/轮换/迁移失败恢复、备份清理、命令参数、报告隐藏密钥、NAT、自愈限制和终端导航。在带 root、qrencode 与 /usr/bin/docker 的 Ubuntu 26.04 开发镜像中，还会执行真实 systemd 解析、离线二维码和私密偏好文件检查；缺少这些条件的主机会明确跳过这三项。端口验证还覆盖真实 IPv4/IPv6 本机监听与关闭端口、仅有监听或映射时的误判、逐项警告及连接失败恢复；不具备 IPv6 本机通信能力时会明确跳过对应测试。实际代理部署仍需符合上述要求的 VPS。
+回归测试使用临时配置、模拟主机变更并通过真实伪终端验证交互，覆盖安装/配置/轮换/迁移失败恢复、备份清理、命令参数、报告隐藏密钥、NAT、自愈限制和终端导航。在带 root、qrencode 与 /usr/bin/docker 的 Ubuntu 26.04 开发镜像中，还会执行真实 systemd 解析、离线二维码和私密偏好文件检查；缺少这些条件的主机会明确跳过这三项。版本测试还覆盖镜像摘要、LTS 元数据、APT 候选版本比较、过期或失败查询、并行启动、本地修改以及断网退出。端口验证还覆盖真实 IPv4/IPv6 本机监听与关闭端口、仅有监听或映射时的误判、逐项警告及连接失败恢复；不具备 IPv6 本机通信能力时会明确跳过对应测试。实际代理部署仍需符合上述要求的 VPS。

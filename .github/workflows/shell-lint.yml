@@ -15,12 +15,12 @@ jobs:
       - name: Setup shfmt
         uses: mfinelli/setup-shfmt@v4.0.1
         with:
-          shfmt-version: '3.8.0'
+          shfmt-version: '3.12.0'
 
       - name: Run shellcheck
         uses: ludeeus/action-shellcheck@2.0.0
         with:
-          version: v0.10.0
+          version: v0.11.0
           # The entry point sources and checks all library modules together.
           ignore_paths: lib
         env:

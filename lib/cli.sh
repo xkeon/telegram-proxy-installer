@@ -28,6 +28,7 @@ cli_usage() {
     --public-ipv4 IP --public-ipv6 IP --bbr yes|no --firewall keep|enable --reinstall
     --domain HOST --port PORT --bind-ip IP --bind-ipv6 IP (single mode only)
   install.sh status [--mode ee|dd|all] [--json]
+  install.sh versions [--lang en|zh|ko|ja]
   install.sh links [--mode ee|dd|all] [--show-secret] [--qr]
   install.sh service --mode ee|dd|all --action start|stop|restart|logs [--lines 50]
   install.sh backups [--keep 20 --prune --yes]
@@ -44,7 +45,7 @@ cli_option_allowed() {
   local allowed=""
   [[ "$2" == --lang ]] && return 0
   case "$1" in
-    menu) allowed="" ;;
+    menu | versions) allowed="" ;;
     language) allowed="--dry-run" ;;
     install | configure)
       allowed="--mode --config --non-interactive --yes --dry-run --domain --port --bind-ip --bind-ipv6 --ee-domain --dd-domain --ee-port --dd-port --ee-bind-ip --dd-bind-ip --ee-bind-ipv6 --dd-bind-ipv6 --front-domain --public-ipv4 --public-ipv6 --bbr --firewall --reinstall --show-secret --qr"
@@ -90,7 +91,7 @@ manager_main() {
     return 0
     ;;
   self_update) cmd=self-update ;; self_heal) cmd=self-heal ;; rotate_secret) cmd=rotate-secret ;; regional_diagnose) cmd=regional-diagnose ;; esac
-  case "$cmd" in menu | install | configure | status | links | service | backups | monitor | watchdog | \
+  case "$cmd" in menu | versions | install | configure | status | links | service | backups | monitor | watchdog | \
     language | healthcheck | self-heal | self-update | migrate | rollback | uninstall | upgrade | rotate-secret | regional-diagnose) ;;
   *)
     printf '%s %s\n' "$(t err_unknown_cmd)" "$cmd" >&2
@@ -277,6 +278,10 @@ manager_main() {
       ;;
     install | configure) manager_install "$cmd" ;;
     status) cmd_status "$json" ;;
+    versions)
+      version_check_run
+      version_report
+      ;;
     links) cmd_links "$SHOW_SECRET" "$SHOW_QR" ;;
     healthcheck) if [[ "$json" -eq 1 ]]; then healthcheck_json; else cmd_healthcheck; fi ;;
     regional-diagnose) cmd_diagnose_report "$report" ;;
